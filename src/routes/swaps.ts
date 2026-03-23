@@ -483,6 +483,64 @@ swapRoutes.get("/foods/:id/health-score", (req: Request, res: Response) => {
     }
   }
 
+  // Add glycemic index to nutrition facts if available
+  if (food.glycemic_index != null) {
+    const gi = food.glycemic_index;
+    let giRating: NutrientRating;
+    let giColor: NutrientColor;
+    let giLabel: string;
+    if (gi <= 55) {
+      giRating = "good";
+      giColor = "#2ECC71";
+      giLabel = "Low";
+    } else if (gi <= 69) {
+      giRating = "moderate";
+      giColor = "#F1C40F";
+      giLabel = "Medium";
+    } else {
+      giRating = "high";
+      giColor = "#E74C3C";
+      giLabel = "High";
+    }
+    nutritionFacts["glycemic_index"] = {
+      label: "Glycemic Index",
+      value: gi,
+      unit: "",
+      rating: giRating,
+      color: giColor,
+      giCategory: giLabel,
+    };
+  }
+
+  // Add glycemic load to nutrition facts if available
+  if (food.glycemic_load != null) {
+    const gl = food.glycemic_load;
+    let glRating: NutrientRating;
+    let glColor: NutrientColor;
+    let glLabel: string;
+    if (gl <= 10) {
+      glRating = "good";
+      glColor = "#2ECC71";
+      glLabel = "Low";
+    } else if (gl <= 19) {
+      glRating = "moderate";
+      glColor = "#F1C40F";
+      glLabel = "Medium";
+    } else {
+      glRating = "high";
+      glColor = "#E74C3C";
+      glLabel = "High";
+    }
+    nutritionFacts["glycemic_load"] = {
+      label: "Glycemic Load",
+      value: gl,
+      unit: "",
+      rating: glRating,
+      color: glColor,
+      glCategory: glLabel,
+    };
+  }
+
   res.json({
     food: { id: food.id, name: food.name, brand: food.brand, category: food.category, servingSize: food.serving_size, servingUnit: food.serving_unit },
     culture_score: { score: baseResult.score, label: baseResult.label, color: baseResult.color },

@@ -52,6 +52,8 @@ db.exec(`
     nutri_score INTEGER,
     nutri_grade TEXT,
     culture_score INTEGER,
+    glycemic_index INTEGER,
+    glycemic_load REAL,
     size_variant TEXT,
     slices_per_serving INTEGER,
     servings_per_container REAL,

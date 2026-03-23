@@ -433,6 +433,23 @@ function applyPreferences(food: any, preferences: UserPreferences | null): { adj
         case "diabetic":
         case "diabetes":
           if (food.total_sugars > 10) { adjustment -= 15; flags.push({ type: "critical", message: `High sugar — caution for diabetics (${food.total_sugars}g)`, severity: "critical" }); }
+          // Factor GI heavily for diabetics
+          if (food.glycemic_index != null && food.glycemic_index > 0) {
+            if (food.glycemic_index >= 70) {
+              adjustment -= 20;
+              flags.push({ type: "critical", message: `High glycemic index (${food.glycemic_index}) — spikes blood sugar`, severity: "critical" });
+            } else if (food.glycemic_index >= 56) {
+              adjustment -= 10;
+              flags.push({ type: "warning", message: `Medium glycemic index (${food.glycemic_index}) — moderate blood sugar impact`, severity: "high" });
+            } else if (food.glycemic_index <= 55 && food.glycemic_index > 0) {
+              adjustment += 5;
+              flags.push({ type: "positive", message: `Low glycemic index (${food.glycemic_index}) — good for blood sugar`, severity: "info" });
+            }
+          }
+          if (food.glycemic_load != null && food.glycemic_load >= 20) {
+            adjustment -= 10;
+            flags.push({ type: "critical", message: `High glycemic load (${food.glycemic_load}) — significant blood sugar impact per serving`, severity: "critical" });
+          }
           break;
         case "celiac":
           if (checkContains(ingredients, GLUTEN_TERMS)) { adjustment -= 30; flags.push({ type: "critical", message: "Contains gluten — unsafe for celiac disease", severity: "critical" }); }

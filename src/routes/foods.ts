@@ -16,6 +16,7 @@ foodRoutes.get("/search", (req, res) => {
   const minScore = parseInt(req.query.min_score as string) || 0;
   const allergenFree = req.query.allergen_free as string;
   const dietary = req.query.dietary as string;
+  const gi = req.query.gi as string;
   const fuzzyEnabled = req.query.fuzzy !== "false";
 
   if (!query) {
@@ -23,7 +24,7 @@ foodRoutes.get("/search", (req, res) => {
     return;
   }
 
-  const cacheKey = `search:${query}:${limit}:${offset}:${source || ""}:${grade || ""}:${allergenFree || ""}:${dietary || ""}:fuzzy=${fuzzyEnabled}`;
+  const cacheKey = `search:${query}:${limit}:${offset}:${source || ""}:${grade || ""}:${allergenFree || ""}:${dietary || ""}:${gi || ""}:fuzzy=${fuzzyEnabled}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     res.json(cached);
@@ -82,6 +83,20 @@ foodRoutes.get("/search", (req, res) => {
     }
   }
 
+  // Filter: glycemic index level (low, medium, high)
+  if (gi) {
+    const giLevels = gi.split(",").map((g: string) => g.trim().toLowerCase()).filter(Boolean);
+    const giClauses: string[] = [];
+    for (const level of giLevels) {
+      if (level === "low") giClauses.push("(f.glycemic_index IS NOT NULL AND f.glycemic_index <= 55)");
+      else if (level === "medium") giClauses.push("(f.glycemic_index IS NOT NULL AND f.glycemic_index >= 56 AND f.glycemic_index <= 69)");
+      else if (level === "high") giClauses.push("(f.glycemic_index IS NOT NULL AND f.glycemic_index >= 70)");
+    }
+    if (giClauses.length > 0) {
+      whereClauses.push(`(${giClauses.join(" OR ")})`);
+    }
+  }
+
   // Filter: minimum Culture Score
   if (minScore > 0) {
     whereClauses.push("f.culture_score >= @minScore");
@@ -118,7 +133,7 @@ foodRoutes.get("/search", (req, res) => {
   }
 
   // If fuzzy is disabled or there are extra filters, return empty
-  if (!fuzzyEnabled || source || grade || allergenFree || dietary) {
+  if (!fuzzyEnabled || source || grade || allergenFree || dietary || gi) {
     const result = { foods: [], total: 0, limit, offset, did_you_mean: null as string | null };
     res.json(result);
     return;
@@ -296,6 +311,8 @@ function formatFood(row: any) {
     slicesPerServing: row.slices_per_serving || null,
     servingsPerContainer: row.servings_per_container || null,
     parentFoodId: row.parent_food_id || null,
+    glycemicIndex: row.glycemic_index ?? null,
+    glycemicLoad: row.glycemic_load ?? null,
     cultureScore: row.culture_score,
     nutriScore: row.nutri_score,
     nutriGrade: row.nutri_grade,
