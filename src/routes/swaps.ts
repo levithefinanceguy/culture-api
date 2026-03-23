@@ -487,8 +487,6 @@ swapRoutes.get("/foods/:id/health-score", (req: Request, res: Response) => {
     food: { id: food.id, name: food.name, brand: food.brand, category: food.category, servingSize: food.serving_size, servingUnit: food.serving_unit },
     culture_score: { score: baseResult.score, label: baseResult.label, color: baseResult.color },
     your_score: yourScore,
-    pros,
-    cons,
     nutrition_facts: nutritionFacts,
   });
 });
