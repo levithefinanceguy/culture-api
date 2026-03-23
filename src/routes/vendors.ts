@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 import db from "../data/database";
 import { generateApiKey } from "../middleware/auth";
 import { calculateNutriScore } from "../services/nutrition-score";
+import { calculatePersonalHealthScore } from "../services/health-score";
 
 export const vendorRoutes = Router();
 
@@ -194,19 +195,20 @@ vendorRoutes.post("/:id/foods", (req, res) => {
       id, name, category, serving_size, serving_unit, source, vendor_id,
       calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
       total_carbohydrates, dietary_fiber, total_sugars, protein,
-      vitamin_d, calcium, iron, potassium, nutri_score, nutri_grade
+      vitamin_d, calcium, iron, potassium, nutri_score, nutri_grade, culture_score
     ) VALUES (
       ?, ?, ?, ?, ?, 'vendor', ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?
     )
   `).run(
     foodId, name, category || "Uncategorized", servingSize || 100, servingUnit || "g", vendorId,
     totals.calories, totals.total_fat, totals.saturated_fat, totals.trans_fat,
     totals.cholesterol, totals.sodium, totals.total_carbohydrates, totals.dietary_fiber,
     totals.total_sugars, totals.protein, totals.vitamin_d, totals.calcium,
-    totals.iron, totals.potassium, nutriResult.score, nutriResult.grade
+    totals.iron, totals.potassium, nutriResult.score, nutriResult.grade,
+    calculatePersonalHealthScore(totals, null).score
   );
 
   // Insert recipe ingredients

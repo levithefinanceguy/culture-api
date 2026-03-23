@@ -51,6 +51,7 @@ db.exec(`
     dietary_tags TEXT,
     nutri_score INTEGER,
     nutri_grade TEXT,
+    culture_score INTEGER,
     size_variant TEXT,
     slices_per_serving INTEGER,
     servings_per_container REAL,

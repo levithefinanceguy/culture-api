@@ -13,6 +13,7 @@ foodRoutes.get("/search", (req, res) => {
   const offset = parseInt(req.query.offset as string) || 0;
   const source = req.query.source as string;
   const grade = req.query.grade as string;
+  const minScore = parseInt(req.query.min_score as string) || 0;
   const allergenFree = req.query.allergen_free as string;
   const dietary = req.query.dietary as string;
   const fuzzyEnabled = req.query.fuzzy !== "false";
@@ -79,6 +80,12 @@ foodRoutes.get("/search", (req, res) => {
       whereClauses.push(`f.dietary_tags LIKE @${paramName}`);
       params[paramName] = `%${tags[i]}%`;
     }
+  }
+
+  // Filter: minimum Culture Score
+  if (minScore > 0) {
+    whereClauses.push("f.culture_score >= @minScore");
+    params.minScore = minScore;
   }
 
   const whereStr = whereClauses.join(" AND ");
@@ -289,6 +296,7 @@ function formatFood(row: any) {
     slicesPerServing: row.slices_per_serving || null,
     servingsPerContainer: row.servings_per_container || null,
     parentFoodId: row.parent_food_id || null,
+    cultureScore: row.culture_score,
     nutriScore: row.nutri_score,
     nutriGrade: row.nutri_grade,
     nutrition: {
