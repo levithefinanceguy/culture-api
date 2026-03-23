@@ -10,6 +10,7 @@ import { adminRoutes } from "./routes/admin";
 import { scanRoutes } from "./routes/scan";
 import { servingRoutes } from "./routes/servings";
 import { mealRoutes } from "./routes/meals";
+import { alternativeRoutes } from "./routes/alternatives";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 
@@ -65,6 +66,12 @@ app.get("/", (_req, res) => {
         list: "GET /api/v1/contributions",
         details: "GET /api/v1/contributions/:id",
       },
+      alternatives: {
+        forFood:
+          "GET /api/v1/foods/:id/alternatives?limit=10&goal=low_calorie|high_protein|low_fat|low_carb|low_sodium",
+        byCategory:
+          "GET /api/v1/alternatives/category/:category?limit=10&goal=",
+      },
       admin: {
         contributions: "GET /api/v1/admin/contributions?status=",
         approve: "POST /api/v1/admin/contributions/:id/approve",
@@ -90,6 +97,7 @@ app.use("/api/v1/contributions", authenticateApiKey, contributionRoutes);
 app.use("/api/v1/admin", authenticateApiKey, adminRoutes);
 app.use("/api/v1/scan", authenticateApiKey, scanRoutes);
 app.use("/api/v1/meals", authenticateApiKey, mealRoutes);
+app.use("/api/v1", authenticateApiKey, alternativeRoutes);
 
 app.listen(PORT, () => {
   console.log(`Culture API running on port ${PORT}`);
