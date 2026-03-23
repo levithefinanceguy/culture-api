@@ -99,7 +99,7 @@ async function fetchPage(query: string, pageNumber: number, pageSize: number): P
   const url = `${USDA_API_BASE}/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=${pageSize}&pageNumber=${pageNumber}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`USDA API error: ${res.status}`);
-  const data = await res.json();
+  const data = (await res.json()) as { foods?: USDAFoodItem[] };
   return data.foods || [];
 }
 
