@@ -191,13 +191,17 @@ const ALWAYS_PROCESSED_KEYWORDS = [
   "tortilla", "wrap", "biscuit", "muffin", "waffle", "pancake",
 ];
 
-// Known ultra-processed brands/products by category
+// Known ultra-processed products by category/name keywords
 const NOVA4_CATEGORIES = [
   "candy", "chocolate", "cookie", "biscuit", "cake", "snack cake",
   "soda", "soft drink", "energy drink", "sport drink",
   "chips", "pretzel", "popcorn", "snack",
   "ice cream", "frozen dessert", "frozen yogurt",
   "hot dog", "corn dog", "nugget",
+  "coca-cola", "pepsi", "sprite", "fanta", "mountain dew",
+  "dr pepper", "7up", "gatorade", "powerade", "red bull",
+  "monster energy", "rockstar",
+  "lemonade", "fruit punch", "kool-aid",
 ];
 
 // Categories that are NOVA 2
