@@ -253,6 +253,15 @@ function classifyNOVA(food: any): { nova: number; score: number; flags: HealthSc
     return { nova: 3, score: 15, flags: [{ type: "warning", message: "Likely processed (branded, no ingredient data)", severity: "low" }] };
   }
 
+  // Nutritional profile check: high sugar + low protein + low fiber = not a whole food
+  // Catches sodas, juices, candy etc. that lack ingredient data
+  const sugar = food.total_sugars || 0;
+  const protein = food.protein || 0;
+  const fiber = food.dietary_fiber || 0;
+  if (sugar > 8 && protein < 3 && fiber < 2) {
+    return { nova: 3, score: 15, flags: [{ type: "warning", message: "Likely processed (high sugar, low nutrient profile)", severity: "medium" }] };
+  }
+
   if (isCulinaryIngredient) {
     flags.push({ type: "positive", message: "Culinary ingredient (NOVA 2)", severity: "info" });
     return { nova: 2, score: 25, flags };
@@ -400,7 +409,16 @@ export function calculatePersonalHealthScore(
   const nova = classifyNOVA(food);
   const prefs = applyPreferences(food, preferences);
 
-  const rawScore = nrf.score + nova.score + prefs.adjustment;
+  let rawScore = nrf.score + nova.score + prefs.adjustment;
+
+  // Whole unprocessed foods (NOVA 1) are as clean as it gets.
+  // Floor at 85 before preference adjustments — you can't do better than
+  // eating a single-ingredient whole food.
+  if (nova.nova === 1) {
+    const baseScore = nrf.score + nova.score;
+    rawScore = Math.max(baseScore, 85) + prefs.adjustment;
+  }
+
   const finalScore = clamp(rawScore, 0, 100);
 
   const { label, color } = scoreToLabel(finalScore);
