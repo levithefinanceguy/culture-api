@@ -189,6 +189,24 @@ function classifyNOVA(food: any): { nova: number; score: number; flags: HealthSc
   const name = (food.name || "").toLowerCase();
   const hasBrand = !!food.brand;
 
+  // Fast food chains are ultra-processed by definition
+  const ULTRA_PROCESSED_BRANDS = [
+    "mcdonald's", "burger king", "wendy's", "taco bell", "kfc",
+    "popeyes", "dunkin'", "dunkin", "subway", "domino's", "pizza hut",
+    "papa john's", "papa johns", "sonic", "jack in the box", "arby's",
+    "carl's jr", "hardee's", "dairy queen", "five guys", "whataburger",
+    "panda express", "little caesars", "del taco", "wingstop",
+    "jimmy john's", "jersey mike's", "firehouse subs",
+  ];
+
+  const brandLower = (food.brand || "").toLowerCase();
+  const isKnownUltraProcessedBrand = ULTRA_PROCESSED_BRANDS.some((b) => brandLower.includes(b));
+
+  if (isKnownUltraProcessedBrand) {
+    flags.push({ type: "warning", message: "Ultra-processed (NOVA 4) — fast food chain", severity: "high" });
+    return { nova: 4, score: 5, flags };
+  }
+
   // If we have ingredients, check for NOVA 4 markers
   if (ingredients) {
     let nova4Hits = 0;
