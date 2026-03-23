@@ -1,14 +1,26 @@
 /**
  * Health Score Calculator
  *
- * Scores foods 0-100 based on two things:
- * 1. Nutritional density — how much good stuff is in it (protein, fiber, vitamins, minerals)
- * 2. Processing level — how processed is it (ingredient count, seed oils, additives, etc.)
+ * Based on two peer-reviewed systems:
  *
- * Then adjusts based on user preferences.
+ * 1. NRF 9.3 Index (Nutrient Rich Foods)
+ *    - Published in the American Journal of Clinical Nutrition
+ *    - 9 nutrients to encourage per 100 kcal: protein, fiber, vitamin A, vitamin C,
+ *      vitamin D, calcium, iron, potassium, magnesium
+ *    - 3 nutrients to limit per 100 kcal: saturated fat, added sugar, sodium
+ *    - Score = sum(nutrient/DV * 100) for encourage - sum(nutrient/DV * 100) for limit
+ *
+ * 2. NOVA Classification (University of São Paulo, endorsed by WHO/FAO)
+ *    - NOVA 1: Unprocessed or minimally processed foods
+ *    - NOVA 2: Processed culinary ingredients
+ *    - NOVA 3: Processed foods
+ *    - NOVA 4: Ultra-processed food products
+ *
+ * Final score = NRF component (0-70) + NOVA component (0-30) + user preference adjustments
+ * Scaled to 0-100.
  */
 
-// --- Ingredient category expansion ---
+// --- Ingredient category expansion (for user preferences) ---
 
 const INGREDIENT_CATEGORIES: Record<string, string[]> = {
   "seed oils": [
@@ -33,9 +45,108 @@ export function expandIngredientCategory(category: string): string[] {
   return INGREDIENT_CATEGORIES[lower] || [lower];
 }
 
-// --- Processing indicators ---
+// --- Daily Values (FDA 2020) used for NRF 9.3 ---
 
-const ULTRA_PROCESSED_MARKERS = [
+const DAILY_VALUES = {
+  protein: 50,        // g
+  fiber: 28,          // g
+  vitaminA: 900,      // mcg RAE (not in our DB, we'll skip)
+  vitaminC: 90,       // mg (not in our DB, we'll skip)
+  vitaminD: 20,       // mcg
+  calcium: 1300,      // mg
+  iron: 18,           // mg
+  potassium: 4700,    // mg
+  magnesium: 420,     // mg (not in our DB, we'll skip)
+  saturatedFat: 20,   // g
+  addedSugar: 50,     // g (we use total sugars as proxy)
+  sodium: 2300,       // mg
+};
+
+// --- NRF 9.3 Score (per 100 kcal) → scaled to 0-70 ---
+
+function calculateNRF(food: any): { score: number; rawNrf: number; flags: HealthScoreFlag[] } {
+  const flags: HealthScoreFlag[] = [];
+  const calories = food.calories || 0;
+
+  // Avoid division by zero — foods with 0 calories
+  if (calories === 0) {
+    return { score: 35, rawNrf: 0, flags: [{ type: "positive", message: "Zero calorie food", severity: "info" }] };
+  }
+
+  // Scale factor: nutrients per 100 kcal
+  const scale = 100 / calories;
+
+  // 9 nutrients to encourage (% of DV per 100 kcal), capped at 100% each
+  const encourageProtein = Math.min(100, ((food.protein || 0) * scale / DAILY_VALUES.protein) * 100);
+  const encourageFiber = Math.min(100, ((food.dietary_fiber || 0) * scale / DAILY_VALUES.fiber) * 100);
+  const encourageVitD = Math.min(100, ((food.vitamin_d || 0) * scale / DAILY_VALUES.vitaminD) * 100);
+  const encourageCalcium = Math.min(100, ((food.calcium || 0) * scale / DAILY_VALUES.calcium) * 100);
+  const encourageIron = Math.min(100, ((food.iron || 0) * scale / DAILY_VALUES.iron) * 100);
+  const encouragePotassium = Math.min(100, ((food.potassium || 0) * scale / DAILY_VALUES.potassium) * 100);
+
+  // We don't have vitamin A, vitamin C, or magnesium in our DB
+  // Use 6 of the 9 nutrients, scale accordingly
+  const encourageTotal = encourageProtein + encourageFiber + encourageVitD
+    + encourageCalcium + encourageIron + encouragePotassium;
+
+  // 3 nutrients to limit (% of DV per 100 kcal), NOT capped
+  const limitSatFat = ((food.saturated_fat || 0) * scale / DAILY_VALUES.saturatedFat) * 100;
+  const limitSugar = ((food.total_sugars || 0) * scale / DAILY_VALUES.addedSugar) * 100;
+  const limitSodium = ((food.sodium || 0) * scale / DAILY_VALUES.sodium) * 100;
+
+  const limitTotal = limitSatFat + limitSugar + limitSodium;
+
+  // Raw NRF score (can be negative)
+  const rawNrf = encourageTotal - limitTotal;
+
+  // Add flags for notable nutrients
+  if (encourageProtein >= 40) flags.push({ type: "positive", message: `High protein per calorie`, severity: "info" });
+  if (encourageFiber >= 40) flags.push({ type: "positive", message: `High fiber per calorie`, severity: "info" });
+  if (encourageIron >= 30) flags.push({ type: "positive", message: `Good source of iron`, severity: "info" });
+  if (encourageCalcium >= 30) flags.push({ type: "positive", message: `Good source of calcium`, severity: "info" });
+  if (encouragePotassium >= 20) flags.push({ type: "positive", message: `Good source of potassium`, severity: "info" });
+
+  if (limitSugar > 50) flags.push({ type: "warning", message: `High sugar per calorie`, severity: "medium" });
+  if (limitSodium > 50) flags.push({ type: "warning", message: `High sodium per calorie`, severity: "medium" });
+  if (limitSatFat > 50) flags.push({ type: "warning", message: `High saturated fat per calorie`, severity: "medium" });
+
+  if (food.trans_fat > 0) {
+    flags.push({ type: "warning", message: `Contains trans fat (${food.trans_fat}g)`, severity: "high" });
+  }
+
+  // Map raw NRF to 0-70 scale
+  // With only 6 of 9 encourage nutrients, raw scores are lower than full NRF 9.3.
+  // Typical raw ranges with our 6 nutrients:
+  //   Excellent whole food (chicken breast, broccoli): 20-80 raw
+  //   Decent food (yogurt, bread): 0-30 raw
+  //   Poor food (candy, soda): -50 to 0 raw
+  //   Terrible (pure sugar): -100+ raw
+  //
+  // Target mapping:
+  //   Chicken breast (raw ~33) → ~50/70
+  //   Broccoli (raw ~43) → ~55/70
+  //   Soda (raw ~-50) → ~5/70
+  //   Candy (raw ~-26) → ~10/70
+  let nrfScore: number;
+  if (rawNrf <= -50) {
+    nrfScore = clamp(Math.round(5 + (rawNrf + 100) / 50 * 5), 0, 5);
+  } else if (rawNrf <= 0) {
+    nrfScore = Math.round(5 + (rawNrf + 50) / 50 * 20); // 5-25
+  } else if (rawNrf <= 50) {
+    nrfScore = Math.round(25 + (rawNrf / 50) * 25); // 25-50
+  } else if (rawNrf <= 150) {
+    nrfScore = Math.round(50 + (rawNrf - 50) / 100 * 15); // 50-65
+  } else {
+    nrfScore = Math.round(65 + Math.min(rawNrf - 150, 150) / 150 * 5); // 65-70
+  }
+
+  return { score: nrfScore, rawNrf: Math.round(rawNrf * 10) / 10, flags };
+}
+
+// --- NOVA Classification → scaled to 0-30 ---
+
+// NOVA 4 ultra-processed markers
+const NOVA4_MARKERS = [
   "high fructose corn syrup", "hfcs", "hydrogenated", "partially hydrogenated",
   "artificial flavor", "artificial flavour", "natural flavor", "natural flavour",
   "modified food starch", "modified corn starch", "maltodextrin", "dextrose",
@@ -46,30 +157,96 @@ const ULTRA_PROCESSED_MARKERS = [
   "aspartame", "sucralose", "saccharin", "acesulfame",
   "red 40", "blue 1", "yellow 5", "yellow 6", "red 3", "blue 2",
   "fd&c", "titanium dioxide", "silicon dioxide",
-  "soy lecithin", "mono and diglycerides", "diglycerides",
+  "mono and diglycerides", "diglycerides",
   "sodium stearoyl lactylate", "datem", "calcium peroxide",
+  "soy protein isolate", "whey protein isolate", "hydrolyzed",
+  "interesterified", "invert sugar", "isoglucose",
 ];
 
-const SEED_OIL_TERMS = [
-  "canola oil", "soybean oil", "sunflower oil", "corn oil",
-  "safflower oil", "grapeseed oil", "cottonseed oil", "rice bran oil",
-  "vegetable oil",
+// NOVA 3 processed markers
+const NOVA3_MARKERS = [
+  "canned", "smoked", "cured", "salted", "pickled", "preserved",
 ];
 
-const WHOLE_FOOD_CATEGORIES = new Set([
-  "fruits and fruit juices", "vegetables and vegetable products",
-  "legumes and legume products", "finfish and shellfish products",
-  "poultry products", "beef products", "pork products",
-  "dairy and egg products", "nut and seed products",
-  "cereal grains and pasta", "spices and herbs",
-  "lamb, veal, and game products", "fats and oils",
-]);
-
-const WHOLE_FOOD_CATEGORY_KEYWORDS = [
+// Categories that are typically NOVA 1
+const NOVA1_CATEGORIES = [
   "fruit", "vegetable", "meat", "poultry", "fish", "seafood",
-  "egg", "dairy", "bean", "legume", "nut", "seed", "grain",
-  "herb", "spice", "fresh", "raw", "whole",
+  "egg", "legume", "bean", "nut", "seed", "grain", "herb", "spice",
+  "fresh", "raw", "whole", "plain",
 ];
+
+// Categories that are NOVA 2
+const NOVA2_KEYWORDS = [
+  "oil", "butter", "sugar", "honey", "flour", "starch",
+  "salt", "vinegar", "cream",
+];
+
+function classifyNOVA(food: any): { nova: number; score: number; flags: HealthScoreFlag[] } {
+  const flags: HealthScoreFlag[] = [];
+  const ingredients = (food.ingredients_text || "").toLowerCase();
+  const category = (food.category || "").toLowerCase();
+  const name = (food.name || "").toLowerCase();
+  const hasBrand = !!food.brand;
+
+  // If we have ingredients, check for NOVA 4 markers
+  if (ingredients) {
+    let nova4Hits = 0;
+    for (const marker of NOVA4_MARKERS) {
+      if (ingredients.includes(marker)) nova4Hits++;
+    }
+
+    const ingredientCount = ingredients.split(",").length;
+
+    if (nova4Hits >= 3 || (nova4Hits >= 1 && ingredientCount > 15)) {
+      flags.push({ type: "warning", message: `Ultra-processed (NOVA 4) — ${nova4Hits} additives detected`, severity: "high" });
+      return { nova: 4, score: 5, flags };
+    }
+
+    if (nova4Hits >= 1) {
+      flags.push({ type: "warning", message: `Processed (NOVA 3-4) — contains some additives`, severity: "medium" });
+      return { nova: 4, score: 10, flags };
+    }
+
+    // Check NOVA 3
+    const hasNova3 = NOVA3_MARKERS.some((m) => ingredients.includes(m) || category.includes(m));
+    if (hasNova3 || ingredientCount > 5) {
+      flags.push({ type: "positive", message: "Processed food (NOVA 3)", severity: "info" });
+      return { nova: 3, score: 18, flags };
+    }
+
+    // Simple ingredient list, no additives
+    if (ingredientCount <= 3) {
+      flags.push({ type: "positive", message: "Minimally processed (NOVA 1)", severity: "info" });
+      return { nova: 1, score: 30, flags };
+    }
+
+    flags.push({ type: "positive", message: "Lightly processed (NOVA 2-3)", severity: "info" });
+    return { nova: 2, score: 22, flags };
+  }
+
+  // No ingredients text — infer from category and name
+  const isLikelyWholeFood = NOVA1_CATEGORIES.some((kw) => category.includes(kw) || name.includes(kw));
+  const isSimpleName = name.split(/[\s,]+/).length <= 2 && !hasBrand;
+  const isCulinaryIngredient = NOVA2_KEYWORDS.some((kw) => category.includes(kw) || name === kw);
+
+  // Branded products without ingredients are likely processed
+  if (hasBrand && !isLikelyWholeFood) {
+    return { nova: 3, score: 15, flags: [{ type: "warning", message: "Likely processed (branded, no ingredient data)", severity: "low" }] };
+  }
+
+  if (isCulinaryIngredient) {
+    flags.push({ type: "positive", message: "Culinary ingredient (NOVA 2)", severity: "info" });
+    return { nova: 2, score: 25, flags };
+  }
+
+  if (isLikelyWholeFood || isSimpleName) {
+    flags.push({ type: "positive", message: "Minimally processed (NOVA 1)", severity: "info" });
+    return { nova: 1, score: 30, flags };
+  }
+
+  // Unknown — assume moderate processing
+  return { nova: 3, score: 15, flags };
+}
 
 // --- Types ---
 
@@ -83,8 +260,10 @@ export interface HealthScoreResult {
   score: number;
   flags: HealthScoreFlag[];
   breakdown: {
-    nutrition_score: number;
-    processing_score: number;
+    nrf_score: number;
+    nrf_raw: number;
+    nova_class: number;
+    nova_score: number;
     preference_adjustment: number;
     final_score: number;
   };
@@ -98,160 +277,6 @@ export interface UserPreferences {
   protein_target: number | null;
 }
 
-// --- Nutritional density score (0-50) ---
-
-function calculateNutritionScore(food: any): { score: number; flags: HealthScoreFlag[] } {
-  const flags: HealthScoreFlag[] = [];
-  let score = 0;
-
-  // Protein: 0-12 points (per 100g)
-  const protein = food.protein || 0;
-  if (protein >= 25) { score += 12; flags.push({ type: "positive", message: `High protein (${protein}g)`, severity: "info" }); }
-  else if (protein >= 15) { score += 9; flags.push({ type: "positive", message: `Good protein (${protein}g)`, severity: "info" }); }
-  else if (protein >= 8) score += 6;
-  else if (protein >= 3) score += 3;
-
-  // Fiber: 0-10 points
-  const fiber = food.dietary_fiber || 0;
-  if (fiber >= 8) { score += 10; flags.push({ type: "positive", message: `Excellent fiber (${fiber}g)`, severity: "info" }); }
-  else if (fiber >= 5) { score += 7; flags.push({ type: "positive", message: `Good fiber (${fiber}g)`, severity: "info" }); }
-  else if (fiber >= 3) score += 5;
-  else if (fiber >= 1) score += 2;
-
-  // Iron: 0-5 points
-  const iron = food.iron || 0;
-  if (iron >= 4) score += 5;
-  else if (iron >= 2) score += 3;
-  else if (iron >= 1) score += 1;
-
-  // Calcium: 0-5 points
-  const calcium = food.calcium || 0;
-  if (calcium >= 200) score += 5;
-  else if (calcium >= 100) score += 3;
-  else if (calcium >= 50) score += 1;
-
-  // Potassium: 0-5 points
-  const potassium = food.potassium || 0;
-  if (potassium >= 400) score += 5;
-  else if (potassium >= 200) score += 3;
-  else if (potassium >= 100) score += 1;
-
-  // Vitamin D: 0-3 points
-  const vitD = food.vitamin_d || 0;
-  if (vitD >= 2) score += 3;
-  else if (vitD >= 1) score += 1;
-
-  // Penalize bad stuff: sugar, sodium, saturated fat
-  const sugar = food.total_sugars || 0;
-  if (sugar > 30) { score -= 8; flags.push({ type: "warning", message: `Very high sugar (${sugar}g)`, severity: "high" }); }
-  else if (sugar > 15) { score -= 5; flags.push({ type: "warning", message: `High sugar (${sugar}g)`, severity: "medium" }); }
-  else if (sugar > 8) score -= 2;
-
-  const sodium = food.sodium || 0;
-  if (sodium > 800) { score -= 6; flags.push({ type: "warning", message: `Very high sodium (${sodium}mg)`, severity: "high" }); }
-  else if (sodium > 400) { score -= 3; flags.push({ type: "warning", message: `High sodium (${sodium}mg)`, severity: "medium" }); }
-
-  const satFat = food.saturated_fat || 0;
-  if (satFat > 10) { score -= 5; flags.push({ type: "warning", message: `High saturated fat (${satFat}g)`, severity: "medium" }); }
-  else if (satFat > 5) score -= 2;
-
-  const transFat = food.trans_fat || 0;
-  if (transFat > 0) {
-    score -= 5;
-    flags.push({ type: "warning", message: `Contains trans fat (${transFat}g)`, severity: "high" });
-  }
-
-  return { score: clamp(score, 0, 50), flags };
-}
-
-// --- Processing score (0-50) ---
-
-function calculateProcessingScore(food: any): { score: number; flags: HealthScoreFlag[] } {
-  const flags: HealthScoreFlag[] = [];
-  let score = 50; // Start at max, deduct for processing
-
-  const ingredients = (food.ingredients_text || "").toLowerCase();
-
-  if (!ingredients) {
-    const category = (food.category || "").toLowerCase();
-    const name = (food.name || "").toLowerCase();
-
-    // Check if it's a whole food by category
-    if (WHOLE_FOOD_CATEGORIES.has(category)) {
-      flags.push({ type: "positive", message: "Whole food", severity: "info" });
-      return { score: 50, flags };
-    }
-
-    // Check category keywords
-    const isLikelyWholeFood = WHOLE_FOOD_CATEGORY_KEYWORDS.some(
-      (kw) => category.includes(kw)
-    );
-
-    // Single-word food names with no ingredients are likely whole foods
-    // (e.g., "BROCCOLI", "CHICKEN", "SALMON", "APPLE")
-    const isSimpleName = name.split(/[\s,]+/).length <= 2 && !food.brand;
-
-    if (isLikelyWholeFood || isSimpleName) {
-      flags.push({ type: "positive", message: "Minimally processed", severity: "info" });
-      return { score: 45, flags };
-    }
-
-    // Unknown processing — give moderate score
-    return { score: 30, flags };
-  }
-
-  // Count ingredients (rough: split by comma)
-  const ingredientCount = ingredients.split(",").length;
-  if (ingredientCount <= 3) {
-    score += 0; // already at max
-    flags.push({ type: "positive", message: `Minimal ingredients (${ingredientCount})`, severity: "info" });
-  } else if (ingredientCount <= 6) {
-    score -= 5;
-  } else if (ingredientCount <= 12) {
-    score -= 10;
-  } else if (ingredientCount <= 20) {
-    score -= 15;
-  } else {
-    score -= 25;
-    flags.push({ type: "warning", message: `Highly complex ingredient list (${ingredientCount} ingredients)`, severity: "medium" });
-  }
-
-  // Check for ultra-processed markers
-  let processingHits = 0;
-  for (const marker of ULTRA_PROCESSED_MARKERS) {
-    if (ingredients.includes(marker)) {
-      processingHits++;
-    }
-  }
-
-  if (processingHits === 0) {
-    flags.push({ type: "positive", message: "No ultra-processed additives detected", severity: "info" });
-  } else if (processingHits <= 2) {
-    score -= 5;
-  } else if (processingHits <= 5) {
-    score -= 12;
-    flags.push({ type: "warning", message: `Contains ${processingHits} processed additives`, severity: "medium" });
-  } else {
-    score -= 20;
-    flags.push({ type: "warning", message: `Highly processed (${processingHits} additives detected)`, severity: "high" });
-  }
-
-  // Seed oils
-  let hasSeedOil = false;
-  for (const oil of SEED_OIL_TERMS) {
-    if (ingredients.includes(oil)) {
-      hasSeedOil = true;
-      break;
-    }
-  }
-  if (hasSeedOil) {
-    score -= 8;
-    flags.push({ type: "warning", message: "Contains seed oils", severity: "medium" });
-  }
-
-  return { score: clamp(score, 0, 50), flags };
-}
-
 // --- Preference adjustments ---
 
 function applyPreferences(food: any, preferences: UserPreferences | null): { adjustment: number; flags: HealthScoreFlag[] } {
@@ -261,7 +286,6 @@ function applyPreferences(food: any, preferences: UserPreferences | null): { adj
   let adjustment = 0;
   const ingredients = (food.ingredients_text || "").toLowerCase();
 
-  // Avoid ingredients
   if (preferences.avoid_ingredients) {
     const avoidList = preferences.avoid_ingredients.split(",").map((s: string) => s.trim()).filter(Boolean);
     for (const avoidItem of avoidList) {
@@ -277,7 +301,6 @@ function applyPreferences(food: any, preferences: UserPreferences | null): { adj
     }
   }
 
-  // Dietary goals
   if (preferences.dietary_goals) {
     const goals = preferences.dietary_goals.split(",").map((s: string) => s.trim().toLowerCase()).filter(Boolean);
     for (const goal of goals) {
@@ -287,15 +310,10 @@ function applyPreferences(food: any, preferences: UserPreferences | null): { adj
           if (food.total_carbohydrates > 20) {
             adjustment -= 10;
             flags.push({ type: "warning", message: `High carbs for ${goal} (${food.total_carbohydrates}g)`, severity: "medium" });
-          } else if (food.total_carbohydrates <= 5) {
-            adjustment += 5;
-          }
+          } else if (food.total_carbohydrates <= 5) adjustment += 5;
           break;
         case "low_sodium":
-          if (food.sodium > 400) {
-            adjustment -= 10;
-            flags.push({ type: "warning", message: `High sodium for low-sodium goal (${food.sodium}mg)`, severity: "medium" });
-          }
+          if (food.sodium > 400) { adjustment -= 10; flags.push({ type: "warning", message: `High sodium (${food.sodium}mg)`, severity: "medium" }); }
           break;
         case "high_protein":
           if (food.protein >= 20) adjustment += 5;
@@ -310,51 +328,32 @@ function applyPreferences(food: any, preferences: UserPreferences | null): { adj
           else if (food.total_sugars <= 2) adjustment += 5;
           break;
         case "dairy_free":
-          if (checkContains(ingredients, DAIRY_TERMS)) {
-            adjustment -= 15;
-            flags.push({ type: "warning", message: "Contains dairy", severity: "high" });
-          }
+          if (checkContains(ingredients, DAIRY_TERMS)) { adjustment -= 15; flags.push({ type: "warning", message: "Contains dairy", severity: "high" }); }
           break;
         case "gluten_free":
-          if (checkContains(ingredients, GLUTEN_TERMS)) {
-            adjustment -= 15;
-            flags.push({ type: "warning", message: "Contains gluten", severity: "high" });
-          }
+          if (checkContains(ingredients, GLUTEN_TERMS)) { adjustment -= 15; flags.push({ type: "warning", message: "Contains gluten", severity: "high" }); }
           break;
       }
     }
   }
 
-  // Health conditions
   if (preferences.health_conditions) {
     const conditions = preferences.health_conditions.split(",").map((s: string) => s.trim().toLowerCase()).filter(Boolean);
     for (const condition of conditions) {
       switch (condition) {
         case "diabetic":
         case "diabetes":
-          if (food.total_sugars > 10) {
-            adjustment -= 15;
-            flags.push({ type: "critical", message: `High sugar — caution for diabetics (${food.total_sugars}g)`, severity: "critical" });
-          }
+          if (food.total_sugars > 10) { adjustment -= 15; flags.push({ type: "critical", message: `High sugar — caution for diabetics (${food.total_sugars}g)`, severity: "critical" }); }
           break;
         case "celiac":
-          if (checkContains(ingredients, GLUTEN_TERMS)) {
-            adjustment -= 30;
-            flags.push({ type: "critical", message: "Contains gluten — unsafe for celiac disease", severity: "critical" });
-          }
+          if (checkContains(ingredients, GLUTEN_TERMS)) { adjustment -= 30; flags.push({ type: "critical", message: "Contains gluten — unsafe for celiac disease", severity: "critical" }); }
           break;
         case "lactose_intolerant":
-          if (checkContains(ingredients, DAIRY_TERMS)) {
-            adjustment -= 20;
-            flags.push({ type: "critical", message: "Contains dairy — not suitable for lactose intolerance", severity: "critical" });
-          }
+          if (checkContains(ingredients, DAIRY_TERMS)) { adjustment -= 20; flags.push({ type: "critical", message: "Contains dairy", severity: "critical" }); }
           break;
         case "hypertension":
         case "high_blood_pressure":
-          if (food.sodium > 400) {
-            adjustment -= 15;
-            flags.push({ type: "critical", message: `High sodium — caution with hypertension (${food.sodium}mg)`, severity: "critical" });
-          }
+          if (food.sodium > 400) { adjustment -= 15; flags.push({ type: "critical", message: `High sodium (${food.sodium}mg)`, severity: "critical" }); }
           break;
       }
     }
@@ -369,19 +368,21 @@ export function calculatePersonalHealthScore(
   food: any,
   preferences: UserPreferences | null
 ): HealthScoreResult {
-  const nutrition = calculateNutritionScore(food);
-  const processing = calculateProcessingScore(food);
+  const nrf = calculateNRF(food);
+  const nova = classifyNOVA(food);
   const prefs = applyPreferences(food, preferences);
 
-  const rawScore = nutrition.score + processing.score + prefs.adjustment;
+  const rawScore = nrf.score + nova.score + prefs.adjustment;
   const finalScore = clamp(rawScore, 0, 100);
 
   return {
     score: finalScore,
-    flags: [...nutrition.flags, ...processing.flags, ...prefs.flags],
+    flags: [...nrf.flags, ...nova.flags, ...prefs.flags],
     breakdown: {
-      nutrition_score: nutrition.score,
-      processing_score: processing.score,
+      nrf_score: nrf.score,
+      nrf_raw: nrf.rawNrf,
+      nova_class: nova.nova,
+      nova_score: nova.score,
       preference_adjustment: prefs.adjustment,
       final_score: finalScore,
     },
@@ -394,15 +395,8 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-const DAIRY_TERMS = [
-  "milk", "cream", "cheese", "butter", "whey", "casein", "lactose",
-  "yogurt", "yoghurt", "ghee", "curds",
-];
-
-const GLUTEN_TERMS = [
-  "wheat", "gluten", "barley", "rye", "triticale", "spelt", "kamut",
-  "semolina", "durum", "farina", "bulgur", "couscous",
-];
+const DAIRY_TERMS = ["milk", "cream", "cheese", "butter", "whey", "casein", "lactose", "yogurt", "yoghurt", "ghee", "curds"];
+const GLUTEN_TERMS = ["wheat", "gluten", "barley", "rye", "triticale", "spelt", "kamut", "semolina", "durum", "farina", "bulgur", "couscous"];
 
 function checkContains(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term));
