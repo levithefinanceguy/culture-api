@@ -38,9 +38,14 @@ db.exec(`
     dietary_tags TEXT,
     nutri_score INTEGER,
     nutri_grade TEXT,
+    size_variant TEXT,
+    slices_per_serving INTEGER,
+    servings_per_container REAL,
+    parent_food_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+    FOREIGN KEY (vendor_id) REFERENCES vendors(id),
+    FOREIGN KEY (parent_food_id) REFERENCES foods(id)
   );
 
   CREATE TABLE IF NOT EXISTS vendors (
@@ -96,6 +101,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_foods_vendor ON foods(vendor_id);
   CREATE INDEX IF NOT EXISTS idx_foods_source ON foods(source);
   CREATE INDEX IF NOT EXISTS idx_foods_category ON foods(category);
+  CREATE INDEX IF NOT EXISTS idx_foods_parent ON foods(parent_food_id);
+  CREATE INDEX IF NOT EXISTS idx_foods_size_variant ON foods(size_variant);
 
   CREATE VIRTUAL TABLE IF NOT EXISTS foods_fts USING fts5(
     name, brand, category,

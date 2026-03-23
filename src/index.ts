@@ -8,6 +8,7 @@ import { parseRoutes } from "./routes/parse";
 import { contributionRoutes } from "./routes/contributions";
 import { adminRoutes } from "./routes/admin";
 import { scanRoutes } from "./routes/scan";
+import { servingRoutes } from "./routes/servings";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 
@@ -47,6 +48,7 @@ app.use("/docs", docsRoutes);
 app.use("/api/v1/keys", apiKeyRoutes);
 
 // Protected routes
+app.use("/api/v1/foods", authenticateApiKey, servingRoutes);
 app.use("/api/v1/foods", authenticateApiKey, foodRoutes);
 app.use("/api/v1/vendors", authenticateApiKey, vendorRoutes);
 app.use("/api/v1/parse", authenticateApiKey, parseRoutes);

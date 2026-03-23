@@ -214,6 +214,10 @@ function formatFood(row: any) {
     ingredientsText: row.ingredients_text || null,
     allergens: row.allergens ? row.allergens.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
     dietaryTags: row.dietary_tags ? row.dietary_tags.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
+    sizeVariant: row.size_variant || null,
+    slicesPerServing: row.slices_per_serving || null,
+    servingsPerContainer: row.servings_per_container || null,
+    parentFoodId: row.parent_food_id || null,
     nutriScore: row.nutri_score,
     nutriGrade: row.nutri_grade,
     nutrition: {
