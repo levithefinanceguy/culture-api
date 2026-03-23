@@ -8,6 +8,7 @@ import { parseRoutes } from "./routes/parse";
 import { contributionRoutes } from "./routes/contributions";
 import { adminRoutes } from "./routes/admin";
 import { scanRoutes } from "./routes/scan";
+import { photoRoutes } from "./routes/photo";
 import { servingRoutes } from "./routes/servings";
 import { mealRoutes } from "./routes/meals";
 import { alternativeRoutes } from "./routes/alternatives";
@@ -31,7 +32,7 @@ app.use(compressionMiddleware);
 app.use(responseTimeLogger);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 
 // Health check endpoint
 app.get("/health", (_req, res) => {
@@ -69,6 +70,12 @@ app.get("/", (_req, res) => {
       scan: {
         label: "POST /api/v1/scan/label",
         submit: "POST /api/v1/scan/submit",
+      },
+      photo: {
+        analyze: "POST /api/v1/photo/analyze",
+        log: "POST /api/v1/photo/log",
+        quick: "POST /api/v1/photo/quick",
+        feedback: "POST /api/v1/photo/feedback",
       },
       vendors: {
         list: "GET /api/v1/vendors",
@@ -129,6 +136,7 @@ app.use("/api/v1/parse", authenticateApiKey, parseRoutes);
 app.use("/api/v1/contributions", authenticateApiKey, contributionRoutes);
 app.use("/api/v1/admin", authenticateApiKey, adminRoutes);
 app.use("/api/v1/scan", authenticateApiKey, scanRoutes);
+app.use("/api/v1/photo", authenticateApiKey, photoRoutes);
 app.use("/api/v1/meals", authenticateApiKey, mealRoutes);
 app.use("/api/v1", authenticateApiKey, alternativeRoutes);
 app.use("/api/v1/preferences", authenticateApiKey, preferenceRoutes);
