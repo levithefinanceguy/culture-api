@@ -409,14 +409,35 @@ export function calculatePersonalHealthScore(
   const nova = classifyNOVA(food);
   const prefs = applyPreferences(food, preferences);
 
-  let rawScore = nrf.score + nova.score + prefs.adjustment;
+  let rawScore: number;
 
-  // Whole unprocessed foods (NOVA 1) are as clean as it gets.
-  // Floor at 85 before preference adjustments — you can't do better than
-  // eating a single-ingredient whole food.
   if (nova.nova === 1) {
-    const baseScore = nrf.score + nova.score;
-    rawScore = Math.max(baseScore, 85) + prefs.adjustment;
+    // NOVA 1: Whole unprocessed foods. These are the gold standard.
+    // Base is 95-100, only minor deductions for nutritional tradeoffs
+    // (e.g., whole milk has sat fat, honey is pure sugar but still natural)
+    const limitPenalty = Math.min(15, Math.max(0,
+      (food.saturated_fat > 5 ? 3 : 0) +
+      (food.total_sugars > 15 ? 5 : food.total_sugars > 8 ? 2 : 0) +
+      (food.sodium > 300 ? 3 : 0) +
+      (food.trans_fat > 0 ? 4 : 0)
+    ));
+    rawScore = 100 - limitPenalty + prefs.adjustment;
+  } else if (nova.nova === 2) {
+    // NOVA 2: Culinary ingredients (oils, butter, sugar, flour)
+    // Good when used in cooking, scored 60-80 based on nutrition
+    rawScore = 60 + Math.round(nrf.score / 70 * 20) + prefs.adjustment;
+  } else if (nova.nova === 3) {
+    // NOVA 3: Processed foods (canned, cured, cheese, etc.)
+    // Scored 20-55 based on nutrition
+    // But if it has essentially zero nutritional value, floor drops to 5
+    const hasNutrition = (food.protein || 0) >= 2 || (food.dietary_fiber || 0) >= 1;
+    const base = hasNutrition ? 20 : 5;
+    const range = hasNutrition ? 35 : 15;
+    rawScore = base + Math.round(nrf.score / 70 * range) + prefs.adjustment;
+  } else {
+    // NOVA 4: Ultra-processed
+    // Scored 0-25 based on whatever nutrition they have
+    rawScore = Math.round(nrf.score / 70 * 25) + prefs.adjustment;
   }
 
   const finalScore = clamp(rawScore, 0, 100);
