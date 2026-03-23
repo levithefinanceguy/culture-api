@@ -2,10 +2,11 @@ import { Router } from "express";
 import db from "../data/database";
 import { cache } from "../middleware/cache";
 import { calculateNutriScore } from "../services/nutrition-score";
+import { normalizeQuery, fuzzyLikeSearch, fuzzyFTS5Search } from "../services/fuzzy-search";
 
 export const foodRoutes = Router();
 
-// Search foods (FTS5)
+// Search foods (FTS5 with fuzzy fallback)
 foodRoutes.get("/search", (req, res) => {
   const query = req.query.q as string;
   const limit = Math.min(parseInt(req.query.limit as string) || 25, 100);
@@ -14,13 +15,14 @@ foodRoutes.get("/search", (req, res) => {
   const grade = req.query.grade as string;
   const allergenFree = req.query.allergen_free as string;
   const dietary = req.query.dietary as string;
+  const fuzzyEnabled = req.query.fuzzy !== "false";
 
   if (!query) {
     res.status(400).json({ error: "Query parameter 'q' is required" });
     return;
   }
 
-  const cacheKey = `search:${query}:${limit}:${offset}:${source || ""}:${grade || ""}:${allergenFree || ""}:${dietary || ""}`;
+  const cacheKey = `search:${query}:${limit}:${offset}:${source || ""}:${grade || ""}:${allergenFree || ""}:${dietary || ""}:fuzzy=${fuzzyEnabled}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     res.json(cached);
@@ -89,11 +91,80 @@ foodRoutes.get("/search", (req, res) => {
     JOIN foods_fts fts ON f.rowid = fts.rowid
     WHERE ${whereStr}`;
 
-  const total = (db.prepare(countSql).get(params) as any).total;
-  const foods = db.prepare(sql).all(params);
+  let total: number;
+  let foods: any[];
 
-  const result = { foods: foods.map(formatFood), total, limit, offset };
-  cache.set(cacheKey, result, 300); // cache 5 min
+  try {
+    total = (db.prepare(countSql).get(params) as any).total;
+    foods = db.prepare(sql).all(params);
+  } catch {
+    total = 0;
+    foods = [];
+  }
+
+  // Fast path: FTS5 found results
+  if (foods.length > 0) {
+    const result = { foods: foods.map(formatFood), total, limit, offset, did_you_mean: null as string | null };
+    cache.set(cacheKey, result, 300);
+    res.json(result);
+    return;
+  }
+
+  // If fuzzy is disabled or there are extra filters, return empty
+  if (!fuzzyEnabled || source || grade || allergenFree || dietary) {
+    const result = { foods: [], total: 0, limit, offset, did_you_mean: null as string | null };
+    res.json(result);
+    return;
+  }
+
+  // Fuzzy fallback step 1: Try with expanded abbreviations via FTS5
+  const normalized = normalizeQuery(query);
+  if (normalized !== query.toLowerCase().trim()) {
+    const expandedFtsQuery = normalized.split(/\s+/).map((w) => `"${w}"*`).join(" ");
+    try {
+      const expandedParams = { q: expandedFtsQuery, rawQuery: normalized, limit, offset };
+      const expandedTotal = (db.prepare(
+        `SELECT COUNT(*) as total FROM foods f
+         JOIN foods_fts fts ON f.rowid = fts.rowid
+         WHERE foods_fts MATCH @q`
+      ).get(expandedParams) as any).total;
+      const expandedFoods = db.prepare(
+        `SELECT f.* FROM foods f
+         JOIN foods_fts fts ON f.rowid = fts.rowid
+         WHERE foods_fts MATCH @q
+         ORDER BY (${rankExpr}) LIMIT @limit OFFSET @offset`
+      ).all(expandedParams);
+
+      if (expandedFoods.length > 0) {
+        const result = { foods: expandedFoods.map(formatFood), total: expandedTotal, limit, offset, did_you_mean: normalized };
+        cache.set(cacheKey, result, 300);
+        res.json(result);
+        return;
+      }
+    } catch {}
+  }
+
+  // Fuzzy fallback step 2: LIKE search with abbreviation-expanded query
+  const likeResult = fuzzyLikeSearch(query, limit, offset);
+  if (likeResult.foods.length > 0) {
+    const result = { foods: likeResult.foods.map(formatFood), total: likeResult.total, limit, offset, did_you_mean: likeResult.did_you_mean };
+    cache.set(cacheKey, result, 300);
+    res.json(result);
+    return;
+  }
+
+  // Fuzzy fallback step 3: Generate typo variants and try FTS5 + LIKE
+  const fuzzyResult = fuzzyFTS5Search(query, limit, offset);
+  if (fuzzyResult.foods.length > 0) {
+    const result = { foods: fuzzyResult.foods.map(formatFood), total: fuzzyResult.total, limit, offset, did_you_mean: fuzzyResult.did_you_mean };
+    cache.set(cacheKey, result, 300);
+    res.json(result);
+    return;
+  }
+
+  // Nothing found
+  const result = { foods: [], total: 0, limit, offset, did_you_mean: null as string | null };
+  cache.set(cacheKey, result, 300);
   res.json(result);
 });
 

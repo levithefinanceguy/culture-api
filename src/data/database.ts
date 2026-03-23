@@ -8,6 +8,19 @@ const db = new Database(DB_PATH);
 // Enable WAL mode for better concurrent read performance
 db.pragma("journal_mode = WAL");
 
+// PRAGMA optimizations for production performance
+// cache_size: negative value = KiB. -64000 = ~64MB of page cache in memory
+db.pragma("cache_size = -64000");
+// mmap_size: memory-map up to 256MB of the database file for faster reads
+db.pragma("mmap_size = 268435456");
+// temp_store: keep temporary tables and indices in memory instead of disk
+db.pragma("temp_store = MEMORY");
+
+// Note on prepared statement caching:
+// better-sqlite3 automatically caches prepared statements internally.
+// Calling db.prepare() with the same SQL string returns a cached statement,
+// so there is no need to implement manual statement caching.
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS foods (
     id TEXT PRIMARY KEY,

@@ -13,14 +13,33 @@ import { mealRoutes } from "./routes/meals";
 import { alternativeRoutes } from "./routes/alternatives";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
+import { responseTimeLogger, compressionMiddleware, enableEtag } from "./middleware/performance";
+import { globalErrorHandler, notFoundHandler } from "./middleware/error-handler";
+import db from "./data/database";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Performance middleware
+enableEtag(app);
+app.use(compressionMiddleware);
+app.use(responseTimeLogger);
+
 app.use(cors());
 app.use(express.json());
+
+// Health check endpoint
+app.get("/health", (_req, res) => {
+  const foodCount = (db.prepare("SELECT COUNT(*) as count FROM foods").get() as any).count;
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    foodCount,
+    version: "1.0.0",
+  });
+});
 
 // Public routes
 app.get("/", (_req, res) => {
@@ -99,8 +118,32 @@ app.use("/api/v1/scan", authenticateApiKey, scanRoutes);
 app.use("/api/v1/meals", authenticateApiKey, mealRoutes);
 app.use("/api/v1", authenticateApiKey, alternativeRoutes);
 
-app.listen(PORT, () => {
+// Error handling (must be after all routes)
+app.use(notFoundHandler);
+app.use(globalErrorHandler);
+
+const server = app.listen(PORT, () => {
   console.log(`Culture API running on port ${PORT}`);
 });
+
+// Graceful shutdown: close the database and server on SIGTERM/SIGINT
+function gracefulShutdown(signal: string): void {
+  console.log(`\n[${new Date().toISOString()}] Received ${signal}. Shutting down gracefully...`);
+  server.close(() => {
+    console.log("HTTP server closed.");
+    db.close();
+    console.log("Database connection closed.");
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if graceful shutdown stalls
+  setTimeout(() => {
+    console.error("Forced shutdown after timeout.");
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 export default app;

@@ -1,13 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import db from "../data/database";
+import { rateLimitMiddleware } from "./rate-limiter";
 
-const RATE_LIMITS: Record<string, number> = {
-  free: 100,
-  pro: 10000,
-  enterprise: 100000,
-  admin: 100000,
-};
-
+/**
+ * Authenticates the API key and then applies the sliding window rate limiter.
+ * Rate limit headers (X-RateLimit-*) are set by the rate limiter middleware.
+ */
 export function authenticateApiKey(req: Request, res: Response, next: NextFunction): void {
   const apiKey = req.headers["x-api-key"] as string || req.query.api_key as string;
 
@@ -23,28 +21,11 @@ export function authenticateApiKey(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  // Check rate limit
-  const today = new Date().toISOString().split("T")[0];
-  if (record.last_request_date !== today) {
-    // Reset daily counter
-    db.prepare("UPDATE api_keys SET requests_today = 1, last_request_date = ? WHERE key = ?").run(today, apiKey);
-  } else {
-    const limit = RATE_LIMITS[record.tier] || RATE_LIMITS.free;
-    if (record.requests_today >= limit) {
-      res.status(429).json({
-        error: "Rate limit exceeded.",
-        limit,
-        tier: record.tier,
-        resetsAt: "midnight UTC",
-      });
-      return;
-    }
-    db.prepare("UPDATE api_keys SET requests_today = requests_today + 1 WHERE key = ?").run(apiKey);
-  }
-
   (req as any).apiKeyOwner = record.owner;
   (req as any).apiKeyTier = record.tier;
-  next();
+
+  // Delegate rate limiting to the sliding window rate limiter
+  rateLimitMiddleware(req, res, next);
 }
 
 export function generateApiKey(): string {

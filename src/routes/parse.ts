@@ -1,5 +1,7 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import db from "../data/database";
+import { fuzzySearchSingle } from "../services/fuzzy-search";
 
 export const parseRoutes = Router();
 
@@ -41,6 +43,12 @@ interface NutritionValues {
   potassium: number | null;
 }
 
+interface GeminiParsedItem {
+  food: string;
+  quantity_grams: number;
+  original_text: string;
+}
+
 const NUTRITION_KEYS: (keyof NutritionValues)[] = [
   "calories",
   "total_fat",
@@ -58,7 +66,89 @@ const NUTRITION_KEYS: (keyof NutritionValues)[] = [
   "potassium",
 ];
 
-// --- Unit conversion to grams ---
+// --- Gemini AI parser ---
+
+const GEMINI_PROMPT = `You are a food portion parser. Given a natural language description of food, break it into individual food items and estimate the weight in grams for each.
+
+Rules:
+- Split compound descriptions into individual food items (e.g., "chicken caesar salad" = chicken breast, romaine lettuce, parmesan cheese, caesar dressing)
+- For multi-component items like "coffee with cream and sugar", split into separate components
+- Estimate realistic portion weights in grams using these common references:
+  - Handful: ~28g (nuts, small snacks), ~15g (leafy greens)
+  - Bowl: ~300-400g (cereal with milk ~350g, soup ~350g, salad ~200g)
+  - Plate: ~300g (pasta ~250g, rice ~200g, mixed meal ~350g)
+  - Glass: ~240ml/240g (water, milk, juice)
+  - Cup: ~240ml/240g
+  - Mug: ~350ml (coffee, tea)
+  - Slice of bread: ~30g
+  - Slice of pizza: ~107g
+  - Piece of fruit: apple ~182g, banana ~118g, orange ~131g
+  - Egg: ~50g each
+  - Chicken breast: ~174g
+  - Tablespoon: ~15g
+  - Teaspoon: ~5g
+  - Pat of butter: ~5g
+  - Strip of bacon: ~8g cooked
+  - Tortilla: ~45g
+- For vague quantities ("some", "a bit of", "a little"), estimate conservatively (~15-30g)
+- For "leftover" or unspecified portions, estimate a typical single serving
+- Account for cooking methods in the food name (e.g., "scrambled eggs" is still "eggs")
+- The "food" field should be a simple, searchable food name (e.g., "chicken breast" not "grilled free-range chicken breast")
+- The "original_text" field should be the portion of the input that corresponds to this item
+
+Return ONLY valid JSON — no markdown fences, no explanation. Return an array of objects:
+[{"food": "almonds", "quantity_grams": 28, "original_text": "a handful of almonds"}]
+
+If the input is not food-related, return an empty array: []`;
+
+async function parseWithGemini(
+  input: string
+): Promise<GeminiParsedItem[] | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+    const result = await Promise.race([
+      model.generateContent(`${GEMINI_PROMPT}\n\nInput: "${input}"`),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Gemini timeout")), 10000)
+      ),
+    ]);
+
+    const text = result.response.text().trim();
+
+    // Strip markdown code fences if present
+    const cleaned = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    const parsed = JSON.parse(cleaned);
+
+    if (!Array.isArray(parsed)) return null;
+
+    // Validate structure
+    const valid = parsed.every(
+      (item: any) =>
+        typeof item.food === "string" &&
+        typeof item.quantity_grams === "number" &&
+        item.quantity_grams > 0 &&
+        typeof item.original_text === "string"
+    );
+
+    if (!valid) return null;
+
+    return parsed as GeminiParsedItem[];
+  } catch (err) {
+    console.warn("Gemini parsing failed, falling back to string matching:", (err as Error).message);
+    return null;
+  }
+}
+
+// --- Unit conversion to grams (used by fallback parser) ---
 
 const UNIT_TO_GRAMS: Record<string, number> = {
   g: 1,
@@ -73,7 +163,7 @@ const UNIT_TO_GRAMS: Record<string, number> = {
   lb: 453.592,
   pound: 453.592,
   pounds: 453.592,
-  ml: 1, // approximate (water-like density)
+  ml: 1,
   milliliter: 1,
   milliliters: 1,
   l: 1000,
@@ -89,7 +179,6 @@ const UNIT_TO_GRAMS: Record<string, number> = {
   teaspoons: 4.929,
 };
 
-// Common food default weights in grams (for "whole" / "piece" / "slice" units)
 const COMMON_FOOD_WEIGHTS: Record<string, number> = {
   egg: 50,
   eggs: 50,
@@ -123,7 +212,6 @@ const COMMON_FOOD_WEIGHTS: Record<string, number> = {
   waffles: 75,
 };
 
-// Unit-specific default weights per item
 const UNIT_FOOD_WEIGHTS: Record<string, Record<string, number>> = {
   slice: {
     bread: 30,
@@ -160,8 +248,6 @@ const UNIT_FOOD_WEIGHTS: Record<string, Record<string, number>> = {
   },
 };
 
-// --- Number word parsing ---
-
 const NUMBER_WORDS: Record<string, number> = {
   zero: 0,
   a: 1,
@@ -182,22 +268,14 @@ const NUMBER_WORDS: Record<string, number> = {
   quarter: 0.25,
 };
 
-// Fraction patterns like "1/2", "3/4"
-const FRACTION_REGEX = /^(\d+)\/(\d+)$/;
-
-// Mixed number like "1 1/2"
-const MIXED_NUMBER_REGEX = /^(\d+)\s+(\d+)\/(\d+)$/;
-
-// --- Parsing logic ---
+// --- Fallback string-matching parser ---
 
 function splitIntoItems(input: string): string[] {
-  // Normalize whitespace and line breaks
   let text = input
     .replace(/\r\n/g, "\n")
     .replace(/\n+/g, ", ")
     .trim();
 
-  // Split on "and", commas, semicolons, plus signs
   const items = text
     .split(/(?:,\s*|\s+and\s+|\s*;\s*|\s*\+\s*)/)
     .map((s) => s.trim())
@@ -212,7 +290,6 @@ function parseQuantity(text: string): {
 } {
   let trimmed = text.trim();
 
-  // Try mixed number: "1 1/2 cups of rice"
   const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)\s+(.*)$/);
   if (mixedMatch) {
     const whole = parseInt(mixedMatch[1]);
@@ -221,7 +298,6 @@ function parseQuantity(text: string): {
     return { quantity: whole + num / den, remaining: mixedMatch[4] };
   }
 
-  // Try fraction: "1/2 cup of rice"
   const fracMatch = trimmed.match(/^(\d+)\/(\d+)\s+(.*)$/);
   if (fracMatch) {
     const num = parseInt(fracMatch[1]);
@@ -229,13 +305,11 @@ function parseQuantity(text: string): {
     return { quantity: num / den, remaining: fracMatch[3] };
   }
 
-  // Try decimal/integer: "2 eggs", "1.5 cups"
   const numMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+(.*)$/);
   if (numMatch) {
     return { quantity: parseFloat(numMatch[1]), remaining: numMatch[2] };
   }
 
-  // Try number words: "two eggs", "a banana", "an apple"
   const wordMatch = trimmed.match(/^(\w+)\s+(.*)$/);
   if (wordMatch) {
     const word = wordMatch[1].toLowerCase();
@@ -244,7 +318,6 @@ function parseQuantity(text: string): {
     }
   }
 
-  // No quantity found, default to 1
   return { quantity: 1, remaining: trimmed };
 }
 
@@ -254,7 +327,6 @@ function parseUnit(text: string): {
 } {
   let trimmed = text.trim().toLowerCase();
 
-  // All known unit names (sorted longest first to match greedily)
   const allUnits = [
     "tablespoons",
     "tablespoon",
@@ -293,23 +365,19 @@ function parseUnit(text: string): {
   ];
 
   for (const u of allUnits) {
-    // Match unit followed by whitespace or "of" or end of string
     const pattern = new RegExp(`^${u}(?:\\s+of\\s+|\\s+|$)(.*)$`, "i");
     const match = trimmed.match(pattern);
     if (match) {
-      // Normalize plural/singular unit name
       const normalized = normalizeUnit(u);
       return { unit: normalized, remaining: match[1].trim() };
     }
   }
 
-  // No unit found — it's a whole item
   return { unit: "whole", remaining: trimmed };
 }
 
 function normalizeUnit(unit: string): string {
   const u = unit.toLowerCase();
-  // Map to singular canonical form
   if (["cups", "cup"].includes(u)) return "cup";
   if (["tbsp", "tablespoon", "tablespoons"].includes(u)) return "tbsp";
   if (["tsp", "teaspoon", "teaspoons"].includes(u)) return "tsp";
@@ -334,14 +402,59 @@ function parseFoodItem(raw: string): {
   const { quantity, remaining: afterQty } = parseQuantity(raw);
   const { unit, remaining: food_query } = parseUnit(afterQty);
 
-  // Clean up leftover "of" at the start
   const cleaned = food_query.replace(/^of\s+/i, "").trim();
 
   return {
     quantity,
     unit,
-    food_query: cleaned || afterQty, // fallback if nothing remains
+    food_query: cleaned || afterQty,
   };
+}
+
+function fallbackParse(input: string): ParsedItem[] {
+  const rawItems = splitIntoItems(input);
+  const parsedItems: ParsedItem[] = [];
+
+  for (const raw of rawItems) {
+    const { quantity, unit, food_query } = parseFoodItem(raw);
+    const match = searchFood(food_query);
+
+    let nutrition: NutritionValues | null = null;
+    let foodMatch: FoodMatch | null = null;
+
+    if (match) {
+      foodMatch = {
+        id: match.id,
+        name: match.name,
+        brand: match.brand || null,
+        category: match.category,
+        serving_size: match.serving_size,
+        serving_unit: match.serving_unit,
+      };
+
+      const grams = getGramsForItem(
+        quantity,
+        unit,
+        food_query,
+        match.serving_size,
+        match.serving_unit
+      );
+
+      nutrition = scaleNutrition(match, grams);
+    }
+
+    parsedItems.push({
+      original: raw,
+      quantity,
+      unit,
+      food_query,
+      match: foodMatch,
+      nutrition,
+      confidence: computeConfidence(food_query, match),
+    });
+  }
+
+  return parsedItems;
 }
 
 // --- Database search ---
@@ -354,11 +467,8 @@ function searchFood(query: string): any | null {
 
   if (!cleanQuery) return null;
 
-  // Build FTS5 query: quote each word and add prefix matching
   const words = cleanQuery.split(/\s+/).filter((w) => w.length > 0);
 
-  // Custom ranking: prefer exact name matches, shorter names,
-  // unbranded/generic foods, and USDA source data
   const rankExpr = `
       fts.rank
       + CASE WHEN lower(f.name) = lower(@rawQuery) THEN -1000 ELSE 0 END
@@ -366,7 +476,7 @@ function searchFood(query: string): any | null {
       + CASE WHEN f.source = 'usda' THEN -30 ELSE 0 END
       + length(f.name) * 0.5`;
 
-  // Strategy 1: Try exact phrase match first
+  // Strategy 1: exact phrase match
   try {
     const phraseQuery = `"${words.join(" ")}"`;
     const result = db
@@ -381,7 +491,7 @@ function searchFood(query: string): any | null {
     if (result) return result;
   } catch {}
 
-  // Strategy 2: All words with prefix matching
+  // Strategy 2: all words with prefix matching
   try {
     const ftsQuery = words.map((w) => `"${w}"*`).join(" ");
     const result = db
@@ -396,7 +506,7 @@ function searchFood(query: string): any | null {
     if (result) return result;
   } catch {}
 
-  // Strategy 3: Try individual words (OR logic) — pick the best ranked
+  // Strategy 3: OR logic
   try {
     const ftsQuery = words.map((w) => `"${w}"*`).join(" OR ");
     const result = db
@@ -411,8 +521,7 @@ function searchFood(query: string): any | null {
     if (result) return result;
   } catch {}
 
-  // Strategy 4: LIKE fallback for single short words
-  // Prefer unbranded, USDA-sourced, shorter-named foods
+  // Strategy 4: LIKE fallback
   try {
     const result = db
       .prepare(
@@ -429,6 +538,12 @@ function searchFood(query: string): any | null {
     if (result) return result;
   } catch {}
 
+  // Strategy 5: Fuzzy search fallback (abbreviations, typo correction)
+  try {
+    const fuzzyResult = fuzzySearchSingle(cleanQuery);
+    if (fuzzyResult.food) return fuzzyResult.food;
+  } catch {}
+
   return null;
 }
 
@@ -443,15 +558,12 @@ function getGramsForItem(
 ): number {
   const foodLower = foodQuery.toLowerCase();
 
-  // If unit is grams already, just multiply
   if (unit === "g") return quantity;
 
-  // If unit has a direct gram conversion (cup, tbsp, tsp, oz, etc.)
   if (unit in UNIT_TO_GRAMS) {
     return quantity * UNIT_TO_GRAMS[unit];
   }
 
-  // For slice/piece/strip/patty, look up food-specific weight
   if (unit in UNIT_FOOD_WEIGHTS) {
     const unitMap = UNIT_FOOD_WEIGHTS[unit];
     for (const [food, grams] of Object.entries(unitMap)) {
@@ -462,17 +574,13 @@ function getGramsForItem(
     return quantity * (unitMap.default || 30);
   }
 
-  // For "whole" items, check common foods
   if (unit === "whole") {
-    // Check exact common food weights
     for (const [food, grams] of Object.entries(COMMON_FOOD_WEIGHTS)) {
       if (foodLower.includes(food) || food.includes(foodLower)) {
         return quantity * grams;
       }
     }
 
-    // If the DB serving unit is already a countable unit (e.g., "piece", "each"),
-    // use the DB serving size as the weight per item
     const countableUnits = [
       "piece",
       "each",
@@ -482,18 +590,16 @@ function getGramsForItem(
       "serving",
     ];
     if (
-      countableUnits.some(
-        (u) => dbServingUnit.toLowerCase().includes(u)
+      countableUnits.some((u) =>
+        dbServingUnit.toLowerCase().includes(u)
       )
     ) {
       return quantity * dbServingSize;
     }
 
-    // Default: use the DB serving size as-is (assume 1 serving = 1 item)
     return quantity * dbServingSize;
   }
 
-  // Fallback: treat as 1 serving per unit
   return quantity * dbServingSize;
 }
 
@@ -501,7 +607,6 @@ function scaleNutrition(
   food: any,
   grams: number
 ): NutritionValues {
-  // The DB stores nutrition per serving_size grams
   const servingGrams = food.serving_size || 100;
   const factor = grams / servingGrams;
 
@@ -554,7 +659,6 @@ function sumNutrition(items: NutritionValues[]): NutritionValues {
     }
   }
 
-  // Round totals
   for (const key of NUTRITION_KEYS) {
     const val = (totals as any)[key];
     if (val != null) {
@@ -576,24 +680,60 @@ function computeConfidence(
   const query = foodQuery.toLowerCase().trim();
   const name = (match.name as string).toLowerCase();
 
-  // Exact match
   if (name === query) return 1;
 
-  // Name contains all query words
   const queryWords = query.split(/\s+/);
   const allWordsFound = queryWords.every((w) => name.includes(w));
   if (allWordsFound) return 0.9;
 
-  // Most words found
   const foundCount = queryWords.filter((w) => name.includes(w)).length;
   const ratio = foundCount / queryWords.length;
 
   return Math.round(Math.max(0.3, ratio * 0.85) * 100) / 100;
 }
 
+// --- Gemini-based item processing ---
+
+function processGeminiItems(geminiItems: GeminiParsedItem[]): ParsedItem[] {
+  const parsedItems: ParsedItem[] = [];
+
+  for (const item of geminiItems) {
+    const match = searchFood(item.food);
+
+    let nutrition: NutritionValues | null = null;
+    let foodMatch: FoodMatch | null = null;
+
+    if (match) {
+      foodMatch = {
+        id: match.id,
+        name: match.name,
+        brand: match.brand || null,
+        category: match.category,
+        serving_size: match.serving_size,
+        serving_unit: match.serving_unit,
+      };
+
+      // Gemini gives us grams directly — scale nutrition from that
+      nutrition = scaleNutrition(match, item.quantity_grams);
+    }
+
+    parsedItems.push({
+      original: item.original_text,
+      quantity: item.quantity_grams,
+      unit: "g",
+      food_query: item.food,
+      match: foodMatch,
+      nutrition,
+      confidence: computeConfidence(item.food, match),
+    });
+  }
+
+  return parsedItems;
+}
+
 // --- Route handler ---
 
-parseRoutes.post("/", (req, res) => {
+parseRoutes.post("/", async (req: Request, res: Response) => {
   const { input } = req.body;
 
   if (!input || typeof input !== "string") {
@@ -611,54 +751,33 @@ parseRoutes.post("/", (req, res) => {
     return;
   }
 
-  const rawItems = splitIntoItems(input);
+  const useFallback = req.query.mode === "fast";
+  let parsedItems: ParsedItem[];
+  let parser_used: "gemini" | "fallback";
 
-  if (rawItems.length === 0) {
+  if (useFallback) {
+    // Forced fallback via ?mode=fast
+    parsedItems = fallbackParse(input);
+    parser_used = "fallback";
+  } else {
+    // Try Gemini first
+    const geminiResult = await parseWithGemini(input);
+
+    if (geminiResult && geminiResult.length > 0) {
+      parsedItems = processGeminiItems(geminiResult);
+      parser_used = "gemini";
+    } else {
+      // Gemini unavailable or returned nothing — use fallback
+      parsedItems = fallbackParse(input);
+      parser_used = "fallback";
+    }
+  }
+
+  if (parsedItems.length === 0) {
     res.status(400).json({
       error: "Could not parse any food items from input",
     });
     return;
-  }
-
-  const parsedItems: ParsedItem[] = [];
-
-  for (const raw of rawItems) {
-    const { quantity, unit, food_query } = parseFoodItem(raw);
-    const match = searchFood(food_query);
-
-    let nutrition: NutritionValues | null = null;
-    let foodMatch: FoodMatch | null = null;
-
-    if (match) {
-      foodMatch = {
-        id: match.id,
-        name: match.name,
-        brand: match.brand || null,
-        category: match.category,
-        serving_size: match.serving_size,
-        serving_unit: match.serving_unit,
-      };
-
-      const grams = getGramsForItem(
-        quantity,
-        unit,
-        food_query,
-        match.serving_size,
-        match.serving_unit
-      );
-
-      nutrition = scaleNutrition(match, grams);
-    }
-
-    parsedItems.push({
-      original: raw,
-      quantity,
-      unit,
-      food_query,
-      match: foodMatch,
-      nutrition,
-      confidence: computeConfidence(food_query, match),
-    });
   }
 
   const matchedItems = parsedItems.filter((i) => i.nutrition !== null);
@@ -673,5 +792,6 @@ parseRoutes.post("/", (req, res) => {
     totals,
     matched: matchedItems.length,
     total_items: parsedItems.length,
+    parser_used,
   });
 });
