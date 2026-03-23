@@ -115,29 +115,30 @@ function calculateNRF(food: any): { score: number; rawNrf: number; flags: Health
   }
 
   // Map raw NRF to 0-70 scale
-  // With only 6 of 9 encourage nutrients, raw scores are lower than full NRF 9.3.
-  // Typical raw ranges with our 6 nutrients:
-  //   Excellent whole food (chicken breast, broccoli): 20-80 raw
-  //   Decent food (yogurt, bread): 0-30 raw
-  //   Poor food (candy, soda): -50 to 0 raw
-  //   Terrible (pure sugar): -100+ raw
+  // We only have 6 of 9 encourage nutrients, so raw scores are compressed.
+  // Compensate by scaling up: multiply raw by 9/6 = 1.5 to estimate full NRF.
+  const adjustedNrf = rawNrf * 1.5;
+
+  // Adjusted ranges:
+  //   Chicken breast: ~49, Broccoli: ~64, Egg: ~48
+  //   Yogurt: ~58, Apple: ~-20, Big Mac: ~-15
+  //   Soda: ~-76, Snickers: ~-39
   //
-  // Target mapping:
-  //   Chicken breast (raw ~33) → ~50/70
-  //   Broccoli (raw ~43) → ~55/70
-  //   Soda (raw ~-50) → ~5/70
-  //   Candy (raw ~-26) → ~10/70
+  // Target: whole foods (adjusted 40-80) → 55-70/70
+  //         decent foods (0-40) → 30-55/70
+  //         poor foods (-50 to 0) → 10-30/70
+  //         terrible (-100+) → 0-10/70
   let nrfScore: number;
-  if (rawNrf <= -50) {
-    nrfScore = clamp(Math.round(5 + (rawNrf + 100) / 50 * 5), 0, 5);
-  } else if (rawNrf <= 0) {
-    nrfScore = Math.round(5 + (rawNrf + 50) / 50 * 20); // 5-25
-  } else if (rawNrf <= 50) {
-    nrfScore = Math.round(25 + (rawNrf / 50) * 25); // 25-50
-  } else if (rawNrf <= 150) {
-    nrfScore = Math.round(50 + (rawNrf - 50) / 100 * 15); // 50-65
+  if (adjustedNrf <= -50) {
+    nrfScore = clamp(Math.round(10 + (adjustedNrf + 100) / 50 * 10), 0, 10);
+  } else if (adjustedNrf <= 0) {
+    nrfScore = Math.round(10 + (adjustedNrf + 50) / 50 * 20); // 10-30
+  } else if (adjustedNrf <= 40) {
+    nrfScore = Math.round(30 + (adjustedNrf / 40) * 25); // 30-55
+  } else if (adjustedNrf <= 100) {
+    nrfScore = Math.round(55 + (adjustedNrf - 40) / 60 * 10); // 55-65
   } else {
-    nrfScore = Math.round(65 + Math.min(rawNrf - 150, 150) / 150 * 5); // 65-70
+    nrfScore = Math.round(65 + Math.min(adjustedNrf - 100, 100) / 100 * 5); // 65-70
   }
 
   return { score: nrfScore, rawNrf: Math.round(rawNrf * 10) / 10, flags };
