@@ -259,6 +259,8 @@ export interface HealthScoreFlag {
 
 export interface HealthScoreResult {
   score: number;
+  label: string;
+  color: string;
   flags: HealthScoreFlag[];
   breakdown: {
     nrf_score: number;
@@ -268,6 +270,13 @@ export interface HealthScoreResult {
     preference_adjustment: number;
     final_score: number;
   };
+}
+
+function scoreToLabel(score: number): { label: string; color: string } {
+  if (score >= 75) return { label: "Excellent", color: "#2ECC71" };
+  if (score >= 50) return { label: "Good", color: "#F1C40F" };
+  if (score >= 25) return { label: "Poor", color: "#E67E22" };
+  return { label: "Bad", color: "#E74C3C" };
 }
 
 export interface UserPreferences {
@@ -376,8 +385,12 @@ export function calculatePersonalHealthScore(
   const rawScore = nrf.score + nova.score + prefs.adjustment;
   const finalScore = clamp(rawScore, 0, 100);
 
+  const { label, color } = scoreToLabel(finalScore);
+
   return {
     score: finalScore,
+    label,
+    color,
     flags: [...nrf.flags, ...nova.flags, ...prefs.flags],
     breakdown: {
       nrf_score: nrf.score,
