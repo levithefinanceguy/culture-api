@@ -2,6 +2,7 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
 import { generateApiKey } from "../middleware/auth";
+import { calculateNutriScore } from "../services/nutrition-score";
 
 export const vendorRoutes = Router();
 
@@ -173,25 +174,39 @@ vendorRoutes.post("/:id/foods", (req, res) => {
 
   const foodId = uuid();
 
+  // Calculate nutri-score (values are already per 100g since USDA data is per 100g
+  // and we scale by grams/100; however the totals represent the full serving,
+  // so we need to normalize back to per 100g for scoring)
+  const totalGrams = ingredients.reduce((sum: number, ing: any) => sum + (ing.grams || 0), 0) || 100;
+  const per100gScale = 100 / totalGrams;
+  const nutriResult = calculateNutriScore({
+    calories: totals.calories * per100gScale,
+    totalSugars: totals.total_sugars * per100gScale,
+    saturatedFat: totals.saturated_fat * per100gScale,
+    sodium: totals.sodium * per100gScale,
+    dietaryFiber: totals.dietary_fiber * per100gScale,
+    protein: totals.protein * per100gScale,
+  }, category);
+
   // Insert the food
   db.prepare(`
     INSERT INTO foods (
       id, name, category, serving_size, serving_unit, source, vendor_id,
       calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
       total_carbohydrates, dietary_fiber, total_sugars, protein,
-      vitamin_d, calcium, iron, potassium
+      vitamin_d, calcium, iron, potassium, nutri_score, nutri_grade
     ) VALUES (
       ?, ?, ?, ?, ?, 'vendor', ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?
     )
   `).run(
     foodId, name, category || "Uncategorized", servingSize || 100, servingUnit || "g", vendorId,
     totals.calories, totals.total_fat, totals.saturated_fat, totals.trans_fat,
     totals.cholesterol, totals.sodium, totals.total_carbohydrates, totals.dietary_fiber,
     totals.total_sugars, totals.protein, totals.vitamin_d, totals.calcium,
-    totals.iron, totals.potassium
+    totals.iron, totals.potassium, nutriResult.score, nutriResult.grade
   );
 
   // Insert recipe ingredients
@@ -207,6 +222,8 @@ vendorRoutes.post("/:id/foods", (req, res) => {
     name,
     source: "vendor",
     vendorId,
+    nutriScore: nutriResult.score,
+    nutriGrade: nutriResult.grade,
     nutrition: totals,
     ingredientCount: validIngredients.length,
     message: "Food created. Nutrition calculated from USDA-verified ingredient data.",

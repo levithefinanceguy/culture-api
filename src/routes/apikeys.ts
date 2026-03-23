@@ -42,7 +42,7 @@ apiKeyRoutes.get("/status", (req, res) => {
     return;
   }
 
-  const limits: Record<string, number> = { free: 100, pro: 10000, enterprise: 100000 };
+  const limits: Record<string, number> = { free: 100, pro: 10000, enterprise: 100000, admin: 100000 };
 
   res.json({
     owner: record.owner,

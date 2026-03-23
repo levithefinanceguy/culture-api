@@ -5,6 +5,7 @@ const RATE_LIMITS: Record<string, number> = {
   free: 100,
   pro: 10000,
   enterprise: 100000,
+  admin: 100000,
 };
 
 export function authenticateApiKey(req: Request, res: Response, next: NextFunction): void {

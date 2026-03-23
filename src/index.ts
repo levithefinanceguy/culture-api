@@ -5,6 +5,8 @@ import { foodRoutes } from "./routes/foods";
 import { vendorRoutes } from "./routes/vendors";
 import { apiKeyRoutes } from "./routes/apikeys";
 import { parseRoutes } from "./routes/parse";
+import { contributionRoutes } from "./routes/contributions";
+import { adminRoutes } from "./routes/admin";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 
@@ -30,6 +32,8 @@ app.get("/", (_req, res) => {
       vendors: "GET /api/v1/vendors",
       parse: "POST /api/v1/parse",
       register: "POST /api/v1/keys/register",
+      contributions: "POST /api/v1/contributions",
+      myContributions: "GET /api/v1/contributions",
     },
     auth: "Pass your API key via x-api-key header or api_key query param",
   });
@@ -45,6 +49,8 @@ app.use("/api/v1/keys", apiKeyRoutes);
 app.use("/api/v1/foods", authenticateApiKey, foodRoutes);
 app.use("/api/v1/vendors", authenticateApiKey, vendorRoutes);
 app.use("/api/v1/parse", authenticateApiKey, parseRoutes);
+app.use("/api/v1/contributions", authenticateApiKey, contributionRoutes);
+app.use("/api/v1/admin", authenticateApiKey, adminRoutes);
 
 app.listen(PORT, () => {
   console.log(`Culture API running on port ${PORT}`);

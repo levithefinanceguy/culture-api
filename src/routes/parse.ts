@@ -357,6 +357,15 @@ function searchFood(query: string): any | null {
   // Build FTS5 query: quote each word and add prefix matching
   const words = cleanQuery.split(/\s+/).filter((w) => w.length > 0);
 
+  // Custom ranking: prefer exact name matches, shorter names,
+  // unbranded/generic foods, and USDA source data
+  const rankExpr = `
+      fts.rank
+      + CASE WHEN lower(f.name) = lower(@rawQuery) THEN -1000 ELSE 0 END
+      + CASE WHEN f.brand IS NULL OR f.brand = '' THEN -50 ELSE 0 END
+      + CASE WHEN f.source = 'usda' THEN -30 ELSE 0 END
+      + length(f.name) * 0.5`;
+
   // Strategy 1: Try exact phrase match first
   try {
     const phraseQuery = `"${words.join(" ")}"`;
@@ -365,10 +374,10 @@ function searchFood(query: string): any | null {
         `SELECT f.* FROM foods f
          JOIN foods_fts fts ON f.rowid = fts.rowid
          WHERE foods_fts MATCH @q
-         ORDER BY fts.rank
+         ORDER BY (${rankExpr})
          LIMIT 1`
       )
-      .get({ q: phraseQuery });
+      .get({ q: phraseQuery, rawQuery: cleanQuery });
     if (result) return result;
   } catch {}
 
@@ -380,10 +389,10 @@ function searchFood(query: string): any | null {
         `SELECT f.* FROM foods f
          JOIN foods_fts fts ON f.rowid = fts.rowid
          WHERE foods_fts MATCH @q
-         ORDER BY fts.rank
+         ORDER BY (${rankExpr})
          LIMIT 1`
       )
-      .get({ q: ftsQuery });
+      .get({ q: ftsQuery, rawQuery: cleanQuery });
     if (result) return result;
   } catch {}
 
@@ -395,23 +404,28 @@ function searchFood(query: string): any | null {
         `SELECT f.* FROM foods f
          JOIN foods_fts fts ON f.rowid = fts.rowid
          WHERE foods_fts MATCH @q
-         ORDER BY fts.rank
+         ORDER BY (${rankExpr})
          LIMIT 1`
       )
-      .get({ q: ftsQuery });
+      .get({ q: ftsQuery, rawQuery: cleanQuery });
     if (result) return result;
   } catch {}
 
   // Strategy 4: LIKE fallback for single short words
+  // Prefer unbranded, USDA-sourced, shorter-named foods
   try {
     const result = db
       .prepare(
         `SELECT * FROM foods
          WHERE lower(name) LIKE @pattern
-         ORDER BY length(name) ASC
+         ORDER BY
+           CASE WHEN lower(name) = lower(@rawQuery) THEN 0 ELSE 1 END,
+           CASE WHEN brand IS NULL OR brand = '' THEN 0 ELSE 1 END,
+           CASE WHEN source = 'usda' THEN 0 ELSE 1 END,
+           length(name) ASC
          LIMIT 1`
       )
-      .get({ pattern: `%${cleanQuery}%` });
+      .get({ pattern: `%${cleanQuery}%`, rawQuery: cleanQuery });
     if (result) return result;
   } catch {}
 

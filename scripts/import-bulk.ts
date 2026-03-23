@@ -4,6 +4,7 @@ import { createWriteStream, createReadStream } from "fs";
 import { pipeline } from "stream/promises";
 import { execSync } from "child_process";
 import db from "../src/data/database";
+import { detectAllergens, detectDietaryTags } from "../src/services/food-analysis";
 
 /**
  * USDA Bulk Import Script
@@ -48,10 +49,12 @@ const upsert = db.prepare(`
   INSERT INTO foods (id, name, brand, category, serving_size, serving_unit, barcode, source,
     calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
     total_carbohydrates, dietary_fiber, total_sugars, protein, vitamin_d, calcium, iron, potassium,
+    ingredients_text, allergens, dietary_tags,
     updated_at)
   VALUES (@id, @name, @brand, @category, @serving_size, @serving_unit, @barcode, 'usda',
     @calories, @total_fat, @saturated_fat, @trans_fat, @cholesterol, @sodium,
     @total_carbohydrates, @dietary_fiber, @total_sugars, @protein, @vitamin_d, @calcium, @iron, @potassium,
+    @ingredients_text, @allergens, @dietary_tags,
     datetime('now'))
   ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
@@ -74,6 +77,9 @@ const upsert = db.prepare(`
     calcium = excluded.calcium,
     iron = excluded.iron,
     potassium = excluded.potassium,
+    ingredients_text = excluded.ingredients_text,
+    allergens = excluded.allergens,
+    dietary_tags = excluded.dietary_tags,
     updated_at = datetime('now')
 `);
 
@@ -96,6 +102,10 @@ function parseFood(item: any): Record<string, unknown> {
     if (k) n[k] = Math.round(val * 10) / 10;
   }
 
+  const ingredientsText: string | null = item.ingredients || null;
+  const allergens = ingredientsText ? detectAllergens(ingredientsText) : [];
+  const dietaryTags = detectDietaryTags(ingredientsText || "", n);
+
   return {
     id: `usda-${item.fdcId}`,
     name: item.description || "Unknown",
@@ -104,6 +114,9 @@ function parseFood(item: any): Record<string, unknown> {
     serving_size: item.servingSize || 100,
     serving_unit: item.servingSizeUnit || "g",
     barcode: item.gtinUpc || null,
+    ingredients_text: ingredientsText,
+    allergens: allergens.length > 0 ? allergens.join(",") : null,
+    dietary_tags: dietaryTags.length > 0 ? dietaryTags.join(",") : null,
     ...n,
   };
 }

@@ -33,6 +33,11 @@ db.exec(`
     calcium REAL,
     iron REAL,
     potassium REAL,
+    ingredients_text TEXT,
+    allergens TEXT,
+    dietary_tags TEXT,
+    nutri_score INTEGER,
+    nutri_grade TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (vendor_id) REFERENCES vendors(id)
@@ -55,7 +60,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS api_keys (
     key TEXT PRIMARY KEY,
     owner TEXT NOT NULL,
-    tier TEXT NOT NULL DEFAULT 'free' CHECK(tier IN ('free', 'pro', 'enterprise')),
+    tier TEXT NOT NULL DEFAULT 'free' CHECK(tier IN ('free', 'pro', 'enterprise', 'admin')),
     requests_today INTEGER NOT NULL DEFAULT 0,
     last_request_date TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -69,6 +74,23 @@ db.exec(`
     FOREIGN KEY (food_id) REFERENCES foods(id),
     FOREIGN KEY (ingredient_food_id) REFERENCES foods(id)
   );
+
+  CREATE TABLE IF NOT EXISTS contributions (
+    id TEXT PRIMARY KEY,
+    api_key TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('new_food', 'correction', 'barcode_add')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+    food_id TEXT,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed_at TEXT,
+    reviewer_note TEXT,
+    FOREIGN KEY (api_key) REFERENCES api_keys(key),
+    FOREIGN KEY (food_id) REFERENCES foods(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_contributions_status ON contributions(status);
+  CREATE INDEX IF NOT EXISTS idx_contributions_api_key ON contributions(api_key);
 
   CREATE INDEX IF NOT EXISTS idx_foods_barcode ON foods(barcode);
   CREATE INDEX IF NOT EXISTS idx_foods_vendor ON foods(vendor_id);

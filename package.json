@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "import:usda": "ts-node scripts/import.ts",
-    "import:bulk": "ts-node scripts/import-bulk.ts"
+    "import:bulk": "ts-node scripts/import-bulk.ts",
+    "migrate:scores": "ts-node scripts/add-scores.ts"
   },
   "repository": {
     "type": "git",
