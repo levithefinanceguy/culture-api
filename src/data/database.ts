@@ -127,6 +127,31 @@ db.exec(`
     INSERT INTO foods_fts(rowid, name, brand, category)
     VALUES (new.rowid, new.name, new.brand, new.category);
   END;
+
+  CREATE TABLE IF NOT EXISTS meal_components (
+    id TEXT PRIMARY KEY,
+    chain_name TEXT NOT NULL,
+    component_name TEXT NOT NULL,
+    component_category TEXT NOT NULL,
+    portion_type TEXT NOT NULL DEFAULT 'standard',
+    portion_grams REAL NOT NULL,
+    calories REAL NOT NULL DEFAULT 0,
+    total_fat REAL NOT NULL DEFAULT 0,
+    saturated_fat REAL NOT NULL DEFAULT 0,
+    trans_fat REAL NOT NULL DEFAULT 0,
+    cholesterol REAL NOT NULL DEFAULT 0,
+    sodium REAL NOT NULL DEFAULT 0,
+    total_carbohydrates REAL NOT NULL DEFAULT 0,
+    dietary_fiber REAL NOT NULL DEFAULT 0,
+    total_sugars REAL NOT NULL DEFAULT 0,
+    protein REAL NOT NULL DEFAULT 0,
+    ingredients_text TEXT,
+    allergens TEXT,
+    dietary_tags TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_meal_components_chain ON meal_components(chain_name);
+  CREATE INDEX IF NOT EXISTS idx_meal_components_category ON meal_components(component_category);
 `);
 
 // Rebuild FTS index on startup to ensure it's in sync

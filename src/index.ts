@@ -9,6 +9,7 @@ import { contributionRoutes } from "./routes/contributions";
 import { adminRoutes } from "./routes/admin";
 import { scanRoutes } from "./routes/scan";
 import { servingRoutes } from "./routes/servings";
+import { mealRoutes } from "./routes/meals";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 
@@ -55,6 +56,7 @@ app.use("/api/v1/parse", authenticateApiKey, parseRoutes);
 app.use("/api/v1/contributions", authenticateApiKey, contributionRoutes);
 app.use("/api/v1/admin", authenticateApiKey, adminRoutes);
 app.use("/api/v1/scan", authenticateApiKey, scanRoutes);
+app.use("/api/v1/meals", authenticateApiKey, mealRoutes);
 
 app.listen(PORT, () => {
   console.log(`Culture API running on port ${PORT}`);
