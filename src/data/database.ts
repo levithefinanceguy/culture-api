@@ -165,6 +165,18 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_meal_components_chain ON meal_components(chain_name);
   CREATE INDEX IF NOT EXISTS idx_meal_components_category ON meal_components(component_category);
+
+  CREATE TABLE IF NOT EXISTS user_preferences (
+    api_key TEXT PRIMARY KEY,
+    avoid_ingredients TEXT,
+    dietary_goals TEXT,
+    health_conditions TEXT,
+    calorie_target INTEGER,
+    protein_target INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (api_key) REFERENCES api_keys(key)
+  );
 `);
 
 // Rebuild FTS index on startup to ensure it's in sync

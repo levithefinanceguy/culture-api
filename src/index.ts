@@ -11,6 +11,8 @@ import { scanRoutes } from "./routes/scan";
 import { servingRoutes } from "./routes/servings";
 import { mealRoutes } from "./routes/meals";
 import { alternativeRoutes } from "./routes/alternatives";
+import { preferenceRoutes } from "./routes/preferences";
+import { swapRoutes } from "./routes/swaps";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 import { responseTimeLogger, compressionMiddleware, enableEtag } from "./middleware/performance";
@@ -91,6 +93,12 @@ app.get("/", (_req, res) => {
         byCategory:
           "GET /api/v1/alternatives/category/:category?limit=10&goal=",
       },
+      preferences: {
+        get: "GET /api/v1/preferences",
+        set: "PUT /api/v1/preferences",
+      },
+      swap: "POST /api/v1/swap",
+      healthScore: "GET /api/v1/foods/:id/health-score",
       admin: {
         contributions: "GET /api/v1/admin/contributions?status=",
         approve: "POST /api/v1/admin/contributions/:id/approve",
@@ -117,6 +125,8 @@ app.use("/api/v1/admin", authenticateApiKey, adminRoutes);
 app.use("/api/v1/scan", authenticateApiKey, scanRoutes);
 app.use("/api/v1/meals", authenticateApiKey, mealRoutes);
 app.use("/api/v1", authenticateApiKey, alternativeRoutes);
+app.use("/api/v1/preferences", authenticateApiKey, preferenceRoutes);
+app.use("/api/v1", authenticateApiKey, swapRoutes);
 
 // Error handling (must be after all routes)
 app.use(notFoundHandler);
