@@ -452,6 +452,30 @@ export function calculatePersonalHealthScore(
   food: any,
   preferences: UserPreferences | null
 ): HealthScoreResult {
+  // Zero nutrition = zero score. No protein, no fiber, no vitamins, no minerals = nothing.
+  const protein = food.protein || 0;
+  const fiber = food.dietary_fiber || 0;
+  const iron = food.iron || 0;
+  const calcium = food.calcium || 0;
+  const potassium = food.potassium || 0;
+  const vitD = food.vitamin_d || 0;
+  const hasNutrition = protein >= 1 || fiber >= 1 || iron >= 1 || calcium >= 30 || potassium >= 50 || vitD >= 0.5;
+
+  if (!hasNutrition) {
+    const prefs = applyPreferences(food, preferences);
+    const { label, color } = scoreToLabel(0);
+    return {
+      score: 0,
+      label,
+      color,
+      flags: [
+        { type: "warning", message: "No meaningful nutrition", severity: "high" },
+        ...prefs.flags,
+      ],
+      breakdown: { nrf_score: 0, nrf_raw: 0, nova_class: 4, nova_score: 0, preference_adjustment: prefs.adjustment, final_score: 0 },
+    };
+  }
+
   const nrf = calculateNRF(food);
   const nova = classifyNOVA(food);
   const prefs = applyPreferences(food, preferences);
