@@ -169,11 +169,35 @@ const NOVA3_MARKERS = [
   "canned", "smoked", "cured", "salted", "pickled", "preserved",
 ];
 
-// Categories that are typically NOVA 1
+// Categories that are typically NOVA 1 — things you pick, catch, or harvest
 const NOVA1_CATEGORIES = [
-  "fruit", "vegetable", "meat", "poultry", "fish", "seafood",
-  "egg", "legume", "bean", "nut", "seed", "grain", "herb", "spice",
-  "fresh", "raw", "whole", "plain",
+  "fruit", "vegetable", "meat", "poultry", "chicken", "turkey",
+  "beef", "pork", "lamb", "veal", "game", "bison", "venison",
+  "fish", "seafood", "shellfish", "salmon", "tuna", "shrimp",
+  "egg", "legume", "bean", "lentil",
+  "nut", "seed", "almond", "walnut", "pecan",
+  "herb", "spice",
+  "fresh", "raw", "whole piece",
+];
+
+// Foods that are NEVER NOVA 1 — always involve processing
+const ALWAYS_PROCESSED_KEYWORDS = [
+  "cheese", "yogurt", "yoghurt", "bread", "pasta", "cereal",
+  "cracker", "chip", "cookie", "cake", "candy", "chocolate",
+  "soda", "juice", "sausage", "bacon", "ham", "jerky",
+  "ice cream", "frozen", "canned", "dried", "smoked", "cured",
+  "sauce", "dressing", "syrup", "jam", "jelly", "spread",
+  "bar", "snack", "pizza", "burger", "fries", "nugget",
+  "tortilla", "wrap", "biscuit", "muffin", "waffle", "pancake",
+];
+
+// Known ultra-processed brands/products by category
+const NOVA4_CATEGORIES = [
+  "candy", "chocolate", "cookie", "biscuit", "cake", "snack cake",
+  "soda", "soft drink", "energy drink", "sport drink",
+  "chips", "pretzel", "popcorn", "snack",
+  "ice cream", "frozen dessert", "frozen yogurt",
+  "hot dog", "corn dog", "nugget",
 ];
 
 // Categories that are NOVA 2
@@ -253,8 +277,27 @@ function classifyNOVA(food: any): { nova: number; score: number; flags: HealthSc
     return { nova: 3, score: 15, flags: [{ type: "warning", message: "Likely processed (branded, no ingredient data)", severity: "low" }] };
   }
 
+  // Check if category/name matches known ultra-processed types
+  const isNova4Category = NOVA4_CATEGORIES.some((kw) => category.includes(kw) || name.includes(kw));
+  if (isNova4Category) {
+    flags.push({ type: "warning", message: "Ultra-processed (NOVA 4)", severity: "high" });
+    return { nova: 4, score: 5, flags };
+  }
+
+  // Check if this is something that's always processed (cheese, bread, yogurt, etc.)
+  // Use word boundary check to avoid "juice" matching "Fruits and Fruit Juices"
+  const matchesWord = (text: string, kw: string) => {
+    const regex = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\\\]/g, "\\$&")}\\b`, "i");
+    return regex.test(text);
+  };
+  // Only check the name, not the broad USDA category (which often contains unrelated words)
+  const isAlwaysProcessed = ALWAYS_PROCESSED_KEYWORDS.some((kw) => matchesWord(name, kw));
+  if (isAlwaysProcessed) {
+    flags.push({ type: "warning", message: "Processed food (NOVA 3)", severity: "low" });
+    return { nova: 3, score: 18, flags };
+  }
+
   // Nutritional profile check: high sugar + low protein + low fiber = not a whole food
-  // Catches sodas, juices, candy etc. that lack ingredient data
   const sugar = food.total_sugars || 0;
   const protein = food.protein || 0;
   const fiber = food.dietary_fiber || 0;
