@@ -100,7 +100,7 @@ function parseFood(item: any): Record<string, unknown> {
     id: `usda-${item.fdcId}`,
     name: item.description || "Unknown",
     brand: item.brandOwner || item.brandName || null,
-    category: item.foodCategory?.description || item.foodCategory || "Uncategorized",
+    category: item.brandedFoodCategory || item.foodCategory?.description || item.foodCategory || "Uncategorized",
     serving_size: item.servingSize || 100,
     serving_unit: item.servingSizeUnit || "g",
     barcode: item.gtinUpc || null,

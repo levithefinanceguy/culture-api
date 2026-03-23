@@ -4,7 +4,9 @@ import dotenv from "dotenv";
 import { foodRoutes } from "./routes/foods";
 import { vendorRoutes } from "./routes/vendors";
 import { apiKeyRoutes } from "./routes/apikeys";
+import { parseRoutes } from "./routes/parse";
 import { authenticateApiKey } from "./middleware/auth";
+import { docsRoutes } from "./routes/docs";
 
 dotenv.config();
 
@@ -26,11 +28,15 @@ app.get("/", (_req, res) => {
       barcode: "GET /api/v1/foods/barcode/:code",
       stats: "GET /api/v1/foods/stats",
       vendors: "GET /api/v1/vendors",
+      parse: "POST /api/v1/parse",
       register: "POST /api/v1/keys/register",
     },
     auth: "Pass your API key via x-api-key header or api_key query param",
   });
 });
+
+// Documentation (public)
+app.use("/docs", docsRoutes);
 
 // API key management (public)
 app.use("/api/v1/keys", apiKeyRoutes);
@@ -38,6 +44,7 @@ app.use("/api/v1/keys", apiKeyRoutes);
 // Protected routes
 app.use("/api/v1/foods", authenticateApiKey, foodRoutes);
 app.use("/api/v1/vendors", authenticateApiKey, vendorRoutes);
+app.use("/api/v1/parse", authenticateApiKey, parseRoutes);
 
 app.listen(PORT, () => {
   console.log(`Culture API running on port ${PORT}`);
