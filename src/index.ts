@@ -15,6 +15,7 @@ import { alternativeRoutes } from "./routes/alternatives";
 import { preferenceRoutes } from "./routes/preferences";
 import { swapRoutes } from "./routes/swaps";
 import { recipeRoutes } from "./routes/recipe";
+import { orderRoutes } from "./routes/order";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 import { responseTimeLogger, compressionMiddleware, enableEtag } from "./middleware/performance";
@@ -110,7 +111,12 @@ app.get("/", (_req, res) => {
         parseText: "POST /api/v1/recipe/text",
         save: "POST /api/v1/recipe/save",
       },
-      swap: "POST /api/v1/swap",
+      order: {
+            scan: "POST /api/v1/order/scan",
+            calculate: "POST /api/v1/order/calculate",
+            log: "POST /api/v1/order/log",
+          },
+          swap: "POST /api/v1/swap",
       healthScore: "GET /api/v1/foods/:id/health-score",
       admin: {
         contributions: "GET /api/v1/admin/contributions?status=",
@@ -142,6 +148,7 @@ app.use("/api/v1", authenticateApiKey, alternativeRoutes);
 app.use("/api/v1/preferences", authenticateApiKey, preferenceRoutes);
 app.use("/api/v1", authenticateApiKey, swapRoutes);
 app.use("/api/v1/recipe", authenticateApiKey, recipeRoutes);
+app.use("/api/v1/order", authenticateApiKey, orderRoutes);
 
 // Error handling (must be after all routes)
 app.use(notFoundHandler);
