@@ -99,20 +99,24 @@ function calculateNRF(food: any): { score: number; rawNrf: number; flags: Health
   // Raw NRF score (can be negative)
   const rawNrf = encourageTotal - limitTotal;
 
-  // Add flags for notable nutrients
-  if (encourageProtein >= 40) flags.push({ type: "positive", message: `High protein per calorie`, severity: "info" });
-  if (encourageFiber >= 40) flags.push({ type: "positive", message: `High fiber per calorie`, severity: "info" });
-  if (encourageIron >= 30) flags.push({ type: "positive", message: `Good source of iron`, severity: "info" });
-  if (encourageCalcium >= 30) flags.push({ type: "positive", message: `Good source of calcium`, severity: "info" });
-  if (encouragePotassium >= 20) flags.push({ type: "positive", message: `Good source of potassium`, severity: "info" });
+  // Pros: only flag what's genuinely good about this food
+  if (food.protein >= 20) flags.push({ type: "positive", message: `High protein (${food.protein}g)`, severity: "info" });
+  else if (food.protein >= 10) flags.push({ type: "positive", message: `Good protein (${food.protein}g)`, severity: "info" });
+  if (food.dietary_fiber >= 5) flags.push({ type: "positive", message: `High fiber (${food.dietary_fiber}g)`, severity: "info" });
+  else if (food.dietary_fiber >= 3) flags.push({ type: "positive", message: `Good fiber (${food.dietary_fiber}g)`, severity: "info" });
+  if ((food.iron || 0) >= 3) flags.push({ type: "positive", message: `Rich in iron (${food.iron}mg)`, severity: "info" });
+  if ((food.calcium || 0) >= 200) flags.push({ type: "positive", message: `Rich in calcium (${food.calcium}mg)`, severity: "info" });
+  if ((food.potassium || 0) >= 300) flags.push({ type: "positive", message: `Good potassium (${food.potassium}mg)`, severity: "info" });
+  if (food.calories > 0 && food.calories <= 50) flags.push({ type: "positive", message: `Very low calorie (${food.calories} kcal)`, severity: "info" });
 
-  if (limitSugar > 50) flags.push({ type: "warning", message: `High sugar per calorie`, severity: "medium" });
-  if (limitSodium > 50) flags.push({ type: "warning", message: `High sodium per calorie`, severity: "medium" });
-  if (limitSatFat > 50) flags.push({ type: "warning", message: `High saturated fat per calorie`, severity: "medium" });
-
-  if (food.trans_fat > 0) {
-    flags.push({ type: "warning", message: `Contains trans fat (${food.trans_fat}g)`, severity: "high" });
-  }
+  // Cons: only flag what's actively bad — things that ARE in the food, not what's missing
+  if (food.total_sugars > 15) flags.push({ type: "warning", message: `High sugar (${food.total_sugars}g)`, severity: "high" });
+  else if (food.total_sugars > 8) flags.push({ type: "warning", message: `Moderate sugar (${food.total_sugars}g)`, severity: "medium" });
+  if (food.sodium > 600) flags.push({ type: "warning", message: `High sodium (${food.sodium}mg)`, severity: "high" });
+  else if (food.sodium > 300) flags.push({ type: "warning", message: `Moderate sodium (${food.sodium}mg)`, severity: "medium" });
+  if (food.saturated_fat > 5) flags.push({ type: "warning", message: `High saturated fat (${food.saturated_fat}g)`, severity: "medium" });
+  if (food.trans_fat > 0) flags.push({ type: "warning", message: `Contains trans fat (${food.trans_fat}g)`, severity: "high" });
+  if (food.cholesterol > 200) flags.push({ type: "warning", message: `High cholesterol (${food.cholesterol}mg)`, severity: "medium" });
 
   // Map raw NRF to 0-70 scale
   // We only have 6 of 9 encourage nutrients, so raw scores are compressed.
@@ -469,7 +473,7 @@ export function calculatePersonalHealthScore(
       label,
       color,
       flags: [
-        { type: "warning", message: "No meaningful nutrition", severity: "high" },
+        { type: "warning", message: "Empty calories — sugar and nothing else", severity: "high" },
         ...prefs.flags,
       ],
       breakdown: { nrf_score: 0, nrf_raw: 0, nova_class: 4, nova_score: 0, preference_adjustment: prefs.adjustment, final_score: 0 },
