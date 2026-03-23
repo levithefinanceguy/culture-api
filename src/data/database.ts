@@ -70,11 +70,37 @@ db.exec(`
     FOREIGN KEY (ingredient_food_id) REFERENCES foods(id)
   );
 
-  CREATE INDEX IF NOT EXISTS idx_foods_name ON foods(name);
   CREATE INDEX IF NOT EXISTS idx_foods_barcode ON foods(barcode);
   CREATE INDEX IF NOT EXISTS idx_foods_vendor ON foods(vendor_id);
   CREATE INDEX IF NOT EXISTS idx_foods_source ON foods(source);
   CREATE INDEX IF NOT EXISTS idx_foods_category ON foods(category);
+
+  CREATE VIRTUAL TABLE IF NOT EXISTS foods_fts USING fts5(
+    name, brand, category,
+    content='foods',
+    content_rowid='rowid'
+  );
+
+  -- Triggers to keep FTS index in sync
+  CREATE TRIGGER IF NOT EXISTS foods_ai AFTER INSERT ON foods BEGIN
+    INSERT INTO foods_fts(rowid, name, brand, category)
+    VALUES (new.rowid, new.name, new.brand, new.category);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS foods_ad AFTER DELETE ON foods BEGIN
+    INSERT INTO foods_fts(foods_fts, rowid, name, brand, category)
+    VALUES ('delete', old.rowid, old.name, old.brand, old.category);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS foods_au AFTER UPDATE ON foods BEGIN
+    INSERT INTO foods_fts(foods_fts, rowid, name, brand, category)
+    VALUES ('delete', old.rowid, old.name, old.brand, old.category);
+    INSERT INTO foods_fts(rowid, name, brand, category)
+    VALUES (new.rowid, new.name, new.brand, new.category);
+  END;
 `);
+
+// Rebuild FTS index on startup to ensure it's in sync
+db.exec("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')");
 
 export default db;

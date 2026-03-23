@@ -1,69 +1,116 @@
 import { Router } from "express";
 import db from "../data/database";
+import { cache } from "../middleware/cache";
 
 export const foodRoutes = Router();
 
-// Search foods
+// Search foods (FTS5)
 foodRoutes.get("/search", (req, res) => {
   const query = req.query.q as string;
   const limit = Math.min(parseInt(req.query.limit as string) || 25, 100);
   const offset = parseInt(req.query.offset as string) || 0;
-  const source = req.query.source as string; // filter by usda, vendor, community
+  const source = req.query.source as string;
 
   if (!query) {
     res.status(400).json({ error: "Query parameter 'q' is required" });
     return;
   }
 
-  let sql = "SELECT * FROM foods WHERE name LIKE @q";
-  const params: any = { q: `%${query}%`, limit, offset };
-
-  if (source) {
-    sql += " AND source = @source";
-    params.source = source;
+  const cacheKey = `search:${query}:${limit}:${offset}:${source || ""}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
   }
 
-  const countSql = sql.replace("SELECT *", "SELECT COUNT(*) as total");
-  const total = (db.prepare(countSql).get(params) as any).total;
+  // Use FTS5 for fast full-text search
+  const ftsQuery = query.split(/\s+/).map((w) => `"${w}"*`).join(" ");
 
-  sql += " ORDER BY name LIMIT @limit OFFSET @offset";
+  let sql: string;
+  let countSql: string;
+  const params: any = { limit, offset };
+
+  if (source) {
+    sql = `SELECT f.* FROM foods f
+      JOIN foods_fts fts ON f.rowid = fts.rowid
+      WHERE foods_fts MATCH @q AND f.source = @source
+      ORDER BY fts.rank LIMIT @limit OFFSET @offset`;
+    countSql = `SELECT COUNT(*) as total FROM foods f
+      JOIN foods_fts fts ON f.rowid = fts.rowid
+      WHERE foods_fts MATCH @q AND f.source = @source`;
+    params.q = ftsQuery;
+    params.source = source;
+  } else {
+    sql = `SELECT f.* FROM foods f
+      JOIN foods_fts fts ON f.rowid = fts.rowid
+      WHERE foods_fts MATCH @q
+      ORDER BY fts.rank LIMIT @limit OFFSET @offset`;
+    countSql = `SELECT COUNT(*) as total FROM foods f
+      JOIN foods_fts fts ON f.rowid = fts.rowid
+      WHERE foods_fts MATCH @q`;
+    params.q = ftsQuery;
+  }
+
+  const total = (db.prepare(countSql).get(params) as any).total;
   const foods = db.prepare(sql).all(params);
 
-  res.json({
-    foods: foods.map(formatFood),
-    total,
-    limit,
-    offset,
-  });
+  const result = { foods: foods.map(formatFood), total, limit, offset };
+  cache.set(cacheKey, result, 300); // cache 5 min
+  res.json(result);
 });
 
 // Get food by barcode
 foodRoutes.get("/barcode/:code", (req, res) => {
+  const cacheKey = `barcode:${req.params.code}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
   const food = db.prepare("SELECT * FROM foods WHERE barcode = ?").get(req.params.code);
   if (!food) {
     res.status(404).json({ error: "Food not found for this barcode" });
     return;
   }
-  res.json(formatFood(food));
+
+  const result = formatFood(food);
+  cache.set(cacheKey, result, 600); // cache 10 min
+  res.json(result);
 });
 
 // Get stats
 foodRoutes.get("/stats", (_req, res) => {
+  const cached = cache.get("stats");
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
   const total = (db.prepare("SELECT COUNT(*) as count FROM foods").get() as any).count;
   const bySource = db.prepare("SELECT source, COUNT(*) as count FROM foods GROUP BY source").all();
   const byCategory = db.prepare("SELECT category, COUNT(*) as count FROM foods GROUP BY category ORDER BY count DESC LIMIT 20").all();
-  res.json({ total, bySource, topCategories: byCategory });
+
+  const result = { total, bySource, topCategories: byCategory };
+  cache.set("stats", result, 60); // cache 1 min
+  res.json(result);
 });
 
 // Get food by ID
 foodRoutes.get("/:id", (req, res) => {
+  const cacheKey = `food:${req.params.id}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
   const food = db.prepare("SELECT * FROM foods WHERE id = ?").get(req.params.id);
   if (!food) {
     res.status(404).json({ error: "Food not found" });
     return;
   }
 
-  // Include recipe ingredients if this is a vendor food
   const ingredients = db.prepare(`
     SELECT ri.grams, f.name, f.id as ingredient_id,
            f.calories, f.protein, f.total_fat, f.total_carbohydrates
@@ -76,6 +123,8 @@ foodRoutes.get("/:id", (req, res) => {
   if (ingredients.length > 0) {
     (result as any).recipe = ingredients;
   }
+
+  cache.set(cacheKey, result, 600);
   res.json(result);
 });
 
