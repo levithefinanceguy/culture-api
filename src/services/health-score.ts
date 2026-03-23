@@ -109,14 +109,15 @@ function calculateNRF(food: any): { score: number; rawNrf: number; flags: Health
   if ((food.potassium || 0) >= 300) flags.push({ type: "positive", message: `Good potassium (${food.potassium}mg)`, severity: "info" });
   if (food.calories > 0 && food.calories <= 50) flags.push({ type: "positive", message: `Very low calorie (${food.calories} kcal)`, severity: "info" });
 
-  // Cons: only flag what's actively bad — things that ARE in the food, not what's missing
-  if (food.total_sugars > 15) flags.push({ type: "warning", message: `High sugar (${food.total_sugars}g)`, severity: "high" });
-  else if (food.total_sugars > 8) flags.push({ type: "warning", message: `Moderate sugar (${food.total_sugars}g)`, severity: "medium" });
-  if (food.sodium > 600) flags.push({ type: "warning", message: `High sodium (${food.sodium}mg)`, severity: "high" });
-  else if (food.sodium > 300) flags.push({ type: "warning", message: `Moderate sodium (${food.sodium}mg)`, severity: "medium" });
-  if (food.saturated_fat > 5) flags.push({ type: "warning", message: `High saturated fat (${food.saturated_fat}g)`, severity: "medium" });
+  // Cons: only flag genuinely concerning levels (>20% DV per serving)
+  // Don't scare people off healthy food over minor amounts
+  if (food.total_sugars > 25) flags.push({ type: "warning", message: `Very high sugar (${food.total_sugars}g)`, severity: "high" });
+  else if (food.total_sugars > 15) flags.push({ type: "warning", message: `High sugar (${food.total_sugars}g)`, severity: "medium" });
+  if (food.sodium > 900) flags.push({ type: "warning", message: `Very high sodium (${food.sodium}mg)`, severity: "high" });
+  else if (food.sodium > 600) flags.push({ type: "warning", message: `High sodium (${food.sodium}mg)`, severity: "medium" });
+  if (food.saturated_fat > 10) flags.push({ type: "warning", message: `Very high saturated fat (${food.saturated_fat}g)`, severity: "high" });
+  else if (food.saturated_fat > 6) flags.push({ type: "warning", message: `High saturated fat (${food.saturated_fat}g)`, severity: "medium" });
   if (food.trans_fat > 0) flags.push({ type: "warning", message: `Contains trans fat (${food.trans_fat}g)`, severity: "high" });
-  if (food.cholesterol > 200) flags.push({ type: "warning", message: `High cholesterol (${food.cholesterol}mg)`, severity: "medium" });
 
   // Map raw NRF to 0-70 scale
   // We only have 6 of 9 encourage nutrients, so raw scores are compressed.
