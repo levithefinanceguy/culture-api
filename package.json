@@ -7,7 +7,8 @@
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "import:usda": "ts-node src/data/import-usda.ts"
+    "import:usda": "ts-node scripts/import.ts",
+    "import:bulk": "ts-node scripts/import-bulk.ts"
   },
   "repository": {
     "type": "git",
