@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
 import { fuzzySearchSingle } from "../services/fuzzy-search";
+import { applyCustomizations } from "./customize";
 
 export const orderRoutes = Router();
 
@@ -494,6 +495,26 @@ function buildOrderItems(
       nutrition = getNutrition(food, item.quantity);
     }
 
+    // Auto-apply customizations if the item has them and was matched
+    if (food && item.customizations.length > 0) {
+      const parsed = parseCustomizationStrings(item.customizations);
+      if (parsed.add.length > 0 || parsed.remove.length > 0 || parsed.swap.length > 0) {
+        const customResult = applyCustomizations(food.id, parsed);
+        if (!("error" in customResult)) {
+          nutrition = customResult.customized.nutrition;
+          // Scale by quantity
+          if (item.quantity > 1 && nutrition) {
+            for (const key of NUTRITION_KEYS) {
+              const val = nutrition[key];
+              if (val != null) {
+                (nutrition as any)[key] = Math.round(val * item.quantity * 100) / 100;
+              }
+            }
+          }
+        }
+      }
+    }
+
     items.push({
       index: i,
       selected: true,
@@ -508,6 +529,69 @@ function buildOrderItems(
   }
 
   return items;
+}
+
+/**
+ * Parse natural-language customization strings (e.g. "no pickles", "add bacon",
+ * "extra cheese", "sub chicken for beef") into structured customization input.
+ */
+function parseCustomizationStrings(
+  customizations: string[]
+): { add: Array<{ name: string; portion: string }>; remove: string[]; swap: Array<{ from: string; to: string }> } {
+  const add: Array<{ name: string; portion: string }> = [];
+  const remove: string[] = [];
+  const swap: Array<{ from: string; to: string }> = [];
+
+  for (const raw of customizations) {
+    const c = raw.toLowerCase().trim();
+
+    // "sub X for Y" or "swap X for Y" or "substitute X for Y" or "X instead of Y"
+    const swapMatch = c.match(/^(?:sub|swap|substitute|replace)\s+(.+?)\s+(?:for|with)\s+(.+)$/);
+    if (swapMatch) {
+      swap.push({ from: swapMatch[2].trim(), to: swapMatch[1].trim() });
+      continue;
+    }
+    const insteadMatch = c.match(/^(.+?)\s+instead\s+of\s+(.+)$/);
+    if (insteadMatch) {
+      swap.push({ from: insteadMatch[2].trim(), to: insteadMatch[1].trim() });
+      continue;
+    }
+
+    // "no X" or "remove X" or "without X" or "hold X"
+    const removeMatch = c.match(/^(?:no|remove|without|hold|minus)\s+(.+)$/);
+    if (removeMatch) {
+      remove.push(removeMatch[1].trim());
+      continue;
+    }
+
+    // "extra X" or "double X"
+    const extraMatch = c.match(/^(?:extra|double)\s+(.+)$/);
+    if (extraMatch) {
+      add.push({ name: extraMatch[1].trim(), portion: "extra" });
+      continue;
+    }
+
+    // "light X"
+    const lightMatch = c.match(/^(?:light|lite|less)\s+(.+)$/);
+    if (lightMatch) {
+      add.push({ name: lightMatch[1].trim(), portion: "light" });
+      continue;
+    }
+
+    // "add X"
+    const addMatch = c.match(/^(?:add|plus|with)\s+(.+)$/);
+    if (addMatch) {
+      add.push({ name: addMatch[1].trim(), portion: "standard" });
+      continue;
+    }
+
+    // Fallback: treat as an addition with standard portion
+    if (c.length > 0) {
+      add.push({ name: c, portion: "standard" });
+    }
+  }
+
+  return { add, remove, swap };
 }
 
 function calculateTotals(items: MatchedOrderItem[]): {
