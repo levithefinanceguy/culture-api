@@ -8,6 +8,7 @@ import { calculateNutriScore } from "../services/nutrition-score";
 import { calculatePersonalHealthScore } from "../services/health-score";
 import { detectAllergens, detectDietaryTags } from "../services/food-analysis";
 import { createFood } from "../services/food-create";
+import { validateFoodData } from "../services/food-validation";
 
 export const foodRoutes = Router();
 
@@ -330,14 +331,62 @@ foodRoutes.get("/barcode/:code", async (req, res) => {
     return;
   }
 
-  // Fallback: Open Food Facts
+  // Fallback: Open Food Facts — auto-import if valid
   try {
     const offResult = await offLookupBarcode(req.params.code);
     if (offResult) {
-      const result = formatOFFFood(offResult);
-      cache.set(cacheKey, result, 300); // shorter cache for provisional data
-      res.json(result);
-      return;
+      const nutrition = {
+        name: offResult.name,
+        calories: offResult.calories,
+        total_fat: offResult.total_fat,
+        saturated_fat: offResult.saturated_fat,
+        protein: offResult.protein,
+        total_carbohydrates: offResult.total_carbohydrates,
+        total_sugars: offResult.total_sugars,
+        sodium: offResult.sodium,
+        dietary_fiber: offResult.dietary_fiber,
+        serving_size: offResult.serving_size,
+      };
+
+      const validation = validateFoodData(nutrition);
+
+      if (validation.valid) {
+        // Auto-import: data is clean, save to Culture
+        const foodId = createFood({
+          name: offResult.name,
+          category: offResult.category || "Uncategorized",
+          servingSize: offResult.serving_size || 100,
+          servingUnit: offResult.serving_unit || "g",
+          source: "community",
+          barcode: offResult.barcode,
+          nutrition: {
+            calories: offResult.calories, total_fat: offResult.total_fat,
+            saturated_fat: offResult.saturated_fat, trans_fat: offResult.trans_fat || 0,
+            cholesterol: offResult.cholesterol || 0, sodium: offResult.sodium,
+            total_carbohydrates: offResult.total_carbohydrates,
+            dietary_fiber: offResult.dietary_fiber, total_sugars: offResult.total_sugars,
+            protein: offResult.protein, vitamin_d: 0, calcium: 0, iron: 0, potassium: 0,
+          },
+          ingredientsText: offResult.ingredients_text,
+          brand: offResult.brand,
+        });
+
+        // Return the newly saved Culture food
+        const saved = db.prepare("SELECT * FROM foods WHERE id = ?").get(foodId);
+        if (saved) {
+          const result = formatFood(saved);
+          cache.set(cacheKey, result, 600);
+          res.json(result);
+          return;
+        }
+      } else {
+        // Data failed validation — return as provisional, don't save
+        const result = formatOFFFood(offResult);
+        (result as any).validation_errors = validation.errors;
+        cache.set(cacheKey, result, 180);
+        res.json(result);
+        return;
+      }
     }
   } catch {
     // OFF lookup failed — fall through to 404
