@@ -3,11 +3,108 @@ import db from "../data/database";
 import { cache } from "../middleware/cache";
 import { normalizeQuery, fuzzyLikeSearch, fuzzyFTS5Search } from "../services/fuzzy-search";
 import { formatFood } from "../services/food-format";
+import { lookupBarcode as offLookupBarcode, searchFoods as offSearchFoods, OFFFood, OFF_ATTRIBUTION } from "../services/openfoodfacts";
+import { calculateNutriScore } from "../services/nutrition-score";
+import { calculatePersonalHealthScore } from "../services/health-score";
+import { detectAllergens, detectDietaryTags } from "../services/food-analysis";
+import { createFood } from "../services/food-create";
 
 export const foodRoutes = Router();
 
-// Search foods (FTS5 with fuzzy fallback)
-foodRoutes.get("/search", (req, res) => {
+/**
+ * Format an Open Food Facts result for API response, auto-calculating
+ * Culture Score, nutri-score, allergens, and dietary tags.
+ */
+function formatOFFFood(off: OFFFood) {
+  // Calculate nutri-score (values are already per 100g from OFF)
+  const nutriScore = calculateNutriScore(
+    {
+      calories: off.calories,
+      totalSugars: off.total_sugars,
+      saturatedFat: off.saturated_fat,
+      sodium: off.sodium,
+      dietaryFiber: off.dietary_fiber,
+      protein: off.protein,
+    },
+    off.category || undefined
+  );
+
+  // Calculate Culture Score
+  const cultureScore = calculatePersonalHealthScore(
+    {
+      calories: off.calories,
+      protein: off.protein,
+      dietary_fiber: off.dietary_fiber,
+      saturated_fat: off.saturated_fat,
+      total_sugars: off.total_sugars,
+      sodium: off.sodium,
+      trans_fat: off.trans_fat,
+      total_fat: off.total_fat,
+      total_carbohydrates: off.total_carbohydrates,
+      cholesterol: off.cholesterol,
+      ingredients_text: off.ingredients_text,
+      category: off.category,
+      name: off.name,
+      brand: off.brand,
+      vitamin_d: null,
+      calcium: null,
+      iron: null,
+      potassium: null,
+    },
+    null
+  );
+
+  // Detect allergens and dietary tags from ingredients
+  const allergens = off.ingredients_text ? detectAllergens(off.ingredients_text) : [];
+  const dietaryTags = off.ingredients_text
+    ? detectDietaryTags(off.ingredients_text, {
+        total_carbohydrates: off.total_carbohydrates,
+        protein: off.protein,
+        total_fat: off.total_fat,
+        total_sugars: off.total_sugars,
+        dietary_fiber: off.dietary_fiber,
+      })
+    : [];
+
+  return {
+    name: off.name,
+    brand: off.brand,
+    category: off.category,
+    barcode: off.barcode,
+    servingSize: off.serving_size,
+    servingUnit: off.serving_unit,
+    source: "openfoodfacts" as const,
+    provisional: true,
+    ingredientsText: off.ingredients_text,
+    allergens,
+    dietaryTags,
+    nutriScore: nutriScore.score,
+    nutriGrade: nutriScore.grade,
+    cultureScore: cultureScore.score,
+    cultureScoreLabel: cultureScore.label,
+    cultureScoreFlags: cultureScore.flags,
+    nutrition: {
+      calories: off.calories,
+      totalFat: off.total_fat,
+      saturatedFat: off.saturated_fat,
+      transFat: off.trans_fat,
+      cholesterol: off.cholesterol,
+      sodium: off.sodium,
+      totalCarbohydrates: off.total_carbohydrates,
+      dietaryFiber: off.dietary_fiber,
+      totalSugars: off.total_sugars,
+      protein: off.protein,
+    },
+    nutriscoreGrade: off.nutriscore_grade,
+    novaGroup: off.nova_group,
+    imageUrl: off.image_url,
+    attribution: OFF_ATTRIBUTION,
+    message: "This result is from Open Food Facts. Verify and save to add it to Culture.",
+  };
+}
+
+// Search foods (FTS5 with fuzzy fallback, Open Food Facts as final fallback)
+foodRoutes.get("/search", async (req, res) => {
   const query = req.query.q as string;
   const limit = Math.min(parseInt(req.query.limit as string) || 25, 100);
   const offset = parseInt(req.query.offset as string) || 0;
@@ -184,14 +281,39 @@ foodRoutes.get("/search", (req, res) => {
     return;
   }
 
-  // Nothing found
+  // Nothing found in Culture DB — try Open Food Facts as final fallback
+  // Only use OFF fallback when there are no extra filters and fuzzy is enabled
+  if (fuzzyEnabled && !source && !grade && !allergenFree && !dietary && !gi) {
+    try {
+      const offResults = await offSearchFoods(query, 10);
+      if (offResults.length > 0) {
+        const formattedOff = offResults.map(formatOFFFood);
+        const offResult = {
+          foods: formattedOff,
+          total: formattedOff.length,
+          limit,
+          offset: 0,
+          did_you_mean: null as string | null,
+          source: "openfoodfacts" as const,
+          attribution: OFF_ATTRIBUTION,
+          message: "No results in Culture. Showing results from Open Food Facts — verify before saving.",
+        };
+        cache.set(cacheKey, offResult, 180);
+        res.json(offResult);
+        return;
+      }
+    } catch {
+      // OFF search failed — fall through to empty result
+    }
+  }
+
   const result = { foods: [], total: 0, limit, offset, did_you_mean: null as string | null };
   cache.set(cacheKey, result, 300);
   res.json(result);
 });
 
-// Get food by barcode
-foodRoutes.get("/barcode/:code", (req, res) => {
+// Get food by barcode (with Open Food Facts fallback)
+foodRoutes.get("/barcode/:code", async (req, res) => {
   const cacheKey = `barcode:${req.params.code}`;
   const cached = cache.get(cacheKey);
   if (cached) {
@@ -199,15 +321,29 @@ foodRoutes.get("/barcode/:code", (req, res) => {
     return;
   }
 
+  // Try Culture DB first
   const food = db.prepare("SELECT * FROM foods WHERE barcode = ?").get(req.params.code);
-  if (!food) {
-    res.status(404).json({ error: "Food not found for this barcode" });
+  if (food) {
+    const result = formatFood(food);
+    cache.set(cacheKey, result, 600);
+    res.json(result);
     return;
   }
 
-  const result = formatFood(food);
-  cache.set(cacheKey, result, 600); // cache 10 min
-  res.json(result);
+  // Fallback: Open Food Facts
+  try {
+    const offResult = await offLookupBarcode(req.params.code);
+    if (offResult) {
+      const result = formatOFFFood(offResult);
+      cache.set(cacheKey, result, 300); // shorter cache for provisional data
+      res.json(result);
+      return;
+    }
+  } catch {
+    // OFF lookup failed — fall through to 404
+  }
+
+  res.status(404).json({ error: "Food not found for this barcode" });
 });
 
 // Get stats
@@ -293,3 +429,86 @@ foodRoutes.get("/:id", (req, res) => {
   res.json(result);
 });
 
+// Import a provisional Open Food Facts result into Culture's database
+foodRoutes.post("/import", async (req, res) => {
+  const { barcode, food: providedFood } = req.body as {
+    barcode?: string;
+    food?: OFFFood;
+  };
+
+  if (!barcode && !providedFood) {
+    res.status(400).json({ error: "Provide either 'barcode' or 'food' in the request body" });
+    return;
+  }
+
+  // Check if this barcode already exists in Culture DB
+  const lookupCode = barcode || providedFood?.barcode;
+  if (lookupCode) {
+    const existing = db.prepare("SELECT id FROM foods WHERE barcode = ?").get(lookupCode);
+    if (existing) {
+      const full = db.prepare("SELECT * FROM foods WHERE barcode = ?").get(lookupCode);
+      res.json({
+        message: "Food already exists in Culture",
+        food: formatFood(full),
+        alreadyExisted: true,
+      });
+      return;
+    }
+  }
+
+  // Get OFF data — either use provided food or look up by barcode
+  let offFood: OFFFood | null = providedFood || null;
+  if (!offFood && barcode) {
+    try {
+      offFood = await offLookupBarcode(barcode);
+    } catch {
+      res.status(502).json({ error: "Failed to fetch from Open Food Facts" });
+      return;
+    }
+  }
+
+  if (!offFood) {
+    res.status(404).json({ error: "Food not found on Open Food Facts" });
+    return;
+  }
+
+  // Save to Culture DB using the shared createFood function
+  try {
+    const foodId = createFood({
+      name: offFood.name,
+      category: offFood.category || "Uncategorized",
+      servingSize: offFood.serving_size,
+      servingUnit: offFood.serving_unit,
+      source: "community",
+      barcode: offFood.barcode,
+      brand: offFood.brand,
+      ingredientsText: offFood.ingredients_text,
+      nutrition: {
+        calories: offFood.calories,
+        total_fat: offFood.total_fat,
+        saturated_fat: offFood.saturated_fat,
+        trans_fat: offFood.trans_fat,
+        cholesterol: offFood.cholesterol,
+        sodium: offFood.sodium,
+        total_carbohydrates: offFood.total_carbohydrates,
+        dietary_fiber: offFood.dietary_fiber,
+        total_sugars: offFood.total_sugars,
+        protein: offFood.protein,
+      },
+    });
+
+    // Read back the saved food to return with all calculated fields
+    const savedFood = db.prepare("SELECT * FROM foods WHERE id = ?").get(foodId);
+
+    // Invalidate relevant caches
+    if (offFood.barcode) cache.del(`barcode:${offFood.barcode}`);
+
+    res.status(201).json({
+      message: "Food imported from Open Food Facts and saved to Culture",
+      food: formatFood(savedFood),
+      attribution: OFF_ATTRIBUTION,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to save food", details: err.message });
+  }
+});

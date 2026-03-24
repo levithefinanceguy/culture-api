@@ -30,6 +30,10 @@ class MemoryCache {
     this.store.set(key, { data, expiresAt: Date.now() + ttlSeconds * 1000 });
   }
 
+  del(key: string): void {
+    this.store.delete(key);
+  }
+
   clear(): void {
     this.store.clear();
   }
