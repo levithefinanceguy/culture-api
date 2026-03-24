@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
+import { formatContribution } from "../services/contribution-format";
 
 export const adminRoutes = Router();
 
@@ -37,7 +38,7 @@ adminRoutes.get("/contributions", (req: Request, res: Response) => {
   const contributions = db.prepare(sql).all(params);
 
   res.json({
-    contributions: contributions.map(formatContribution),
+    contributions: contributions.map((c) => formatContribution(c, true)),
     total,
     limit,
     offset,
@@ -214,16 +215,3 @@ function applyBarcodeAdd(foodId: string, data: any) {
   );
 }
 
-function formatContribution(row: any) {
-  return {
-    id: row.id,
-    apiKey: row.api_key,
-    type: row.type,
-    status: row.status,
-    foodId: row.food_id,
-    data: JSON.parse(row.data),
-    createdAt: row.created_at,
-    reviewedAt: row.reviewed_at,
-    reviewerNote: row.reviewer_note,
-  };
-}

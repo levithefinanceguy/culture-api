@@ -17,6 +17,7 @@ import { swapRoutes } from "./routes/swaps";
 import { recipeRoutes } from "./routes/recipe";
 import { orderRoutes } from "./routes/order";
 import { customizeRoutes } from "./routes/customize";
+import { healthRoutes } from "./routes/health";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 import { responseTimeLogger, compressionMiddleware, enableEtag } from "./middleware/performance";
@@ -155,6 +156,7 @@ app.use("/api/v1", authenticateApiKey, swapRoutes);
 app.use("/api/v1/recipe", authenticateApiKey, recipeRoutes);
 app.use("/api/v1/order", authenticateApiKey, orderRoutes);
 app.use("/api/v1", authenticateApiKey, customizeRoutes);
+app.use("/api/v1", authenticateApiKey, healthRoutes);
 
 // Error handling (must be after all routes)
 app.use(notFoundHandler);

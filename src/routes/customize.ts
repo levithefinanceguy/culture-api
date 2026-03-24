@@ -2,45 +2,13 @@ import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
 import { calculateNutriScore } from "../services/nutrition-score";
-import { fuzzySearchSingle } from "../services/fuzzy-search";
+import { searchFood } from "../services/food-search";
+import {
+  NutritionValues,
+  NUTRITION_KEYS,
+} from "../services/nutrition-utils";
 
 export const customizeRoutes = Router();
-
-// --- Types ---
-
-interface NutritionValues {
-  calories: number;
-  total_fat: number;
-  saturated_fat: number;
-  trans_fat: number;
-  cholesterol: number;
-  sodium: number;
-  total_carbohydrates: number;
-  dietary_fiber: number;
-  total_sugars: number;
-  protein: number;
-  vitamin_d: number | null;
-  calcium: number | null;
-  iron: number | null;
-  potassium: number | null;
-}
-
-const NUTRITION_KEYS: (keyof NutritionValues)[] = [
-  "calories",
-  "total_fat",
-  "saturated_fat",
-  "trans_fat",
-  "cholesterol",
-  "sodium",
-  "total_carbohydrates",
-  "dietary_fiber",
-  "total_sugars",
-  "protein",
-  "vitamin_d",
-  "calcium",
-  "iron",
-  "potassium",
-];
 
 type PortionSize = "light" | "standard" | "extra" | "double";
 
@@ -253,120 +221,10 @@ function getPortionMultiplier(portion: PortionSize): number {
 // --- Search helpers ---
 
 function searchFoodByName(query: string, brand?: string | null): any | null {
-  const cleanQuery = query
-    .toLowerCase()
-    .replace(/[^\w\s]/g, "")
-    .trim();
-
-  if (!cleanQuery) return null;
-
-  const words = cleanQuery.split(/\s+/).filter((w) => w.length > 0);
-
-  const rankExpr = `
-      fts.rank
-      + CASE WHEN lower(f.name) = lower(@rawQuery) THEN -1000 ELSE 0 END
-      + CASE WHEN f.brand IS NULL OR f.brand = '' THEN -50 ELSE 0 END
-      + CASE WHEN f.source = 'usda' THEN -30 ELSE 0 END
-      + CASE WHEN f.source = 'community' THEN 20 ELSE 0 END
-      + length(f.name) * 0.5`;
-
-  // If we have a brand/restaurant, try brand-filtered search first
-  if (brand) {
-    const brandClean = brand.toLowerCase().replace(/[^\w\s]/g, "").trim();
-    try {
-      const phraseQuery = `"${words.join(" ")}"`;
-      const result = db
-        .prepare(
-          `SELECT f.* FROM foods f
-           JOIN foods_fts fts ON f.rowid = fts.rowid
-           WHERE foods_fts MATCH @q AND lower(f.brand) LIKE @brand
-           ORDER BY (${rankExpr})
-           LIMIT 1`
-        )
-        .get({ q: phraseQuery, rawQuery: cleanQuery, brand: `%${brandClean}%` });
-      if (result) return result;
-    } catch { /* ignore FTS errors */ }
-
-    try {
-      const ftsQuery = words.map((w) => `"${w}"*`).join(" ");
-      const result = db
-        .prepare(
-          `SELECT f.* FROM foods f
-           JOIN foods_fts fts ON f.rowid = fts.rowid
-           WHERE foods_fts MATCH @q AND lower(f.brand) LIKE @brand
-           ORDER BY (${rankExpr})
-           LIMIT 1`
-        )
-        .get({ q: ftsQuery, rawQuery: cleanQuery, brand: `%${brandClean}%` });
-      if (result) return result;
-    } catch { /* ignore */ }
-  }
-
-  // Generic search (no brand filter)
-  try {
-    const phraseQuery = `"${words.join(" ")}"`;
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: phraseQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch { /* ignore */ }
-
-  try {
-    const ftsQuery = words.map((w) => `"${w}"*`).join(" ");
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: ftsQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch { /* ignore */ }
-
-  try {
-    const ftsQuery = words.map((w) => `"${w}"*`).join(" OR ");
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: ftsQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch { /* ignore */ }
-
-  try {
-    const result = db
-      .prepare(
-        `SELECT * FROM foods
-         WHERE lower(name) LIKE @pattern
-         ORDER BY
-           CASE WHEN lower(name) = lower(@rawQuery) THEN 0 ELSE 1 END,
-           CASE WHEN brand IS NULL OR brand = '' THEN 0 ELSE 1 END,
-           CASE WHEN source = 'usda' THEN 0 ELSE 1 END,
-           length(name) ASC
-         LIMIT 1`
-      )
-      .get({ pattern: `%${cleanQuery}%`, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch { /* ignore */ }
-
-  try {
-    const fuzzyResult = fuzzySearchSingle(cleanQuery);
-    if (fuzzyResult.food) return fuzzyResult.food;
-  } catch { /* ignore */ }
-
-  return null;
+  return searchFood(query, {
+    brandFilter: brand || undefined,
+    penalizeCommunity: true,
+  });
 }
 
 function searchMealComponent(name: string, chain: string | null): any | null {

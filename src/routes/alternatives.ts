@@ -1,6 +1,7 @@
 import { Router } from "express";
 import db from "../data/database";
 import { cache } from "../middleware/cache";
+import { formatFood } from "../services/food-format";
 
 export const alternativeRoutes = Router();
 
@@ -376,53 +377,3 @@ function round(value: number, decimals = 0): number {
   return Math.round(value * factor) / factor;
 }
 
-function formatFood(row: any) {
-  return {
-    id: row.id,
-    name: row.name,
-    brand: row.brand,
-    category: row.category,
-    servingSize: row.serving_size,
-    servingUnit: row.serving_unit,
-    barcode: row.barcode,
-    source: row.source,
-    vendorId: row.vendor_id,
-    ingredientsText: row.ingredients_text || null,
-    allergens: row.allergens
-      ? row.allergens
-          .split(",")
-          .map((s: string) => s.trim())
-          .filter(Boolean)
-      : [],
-    dietaryTags: row.dietary_tags
-      ? row.dietary_tags
-          .split(",")
-          .map((s: string) => s.trim())
-          .filter(Boolean)
-      : [],
-    sizeVariant: row.size_variant || null,
-    slicesPerServing: row.slices_per_serving || null,
-    servingsPerContainer: row.servings_per_container || null,
-    parentFoodId: row.parent_food_id || null,
-    nutriScore: row.nutri_score,
-    nutriGrade: row.nutri_grade,
-    nutrition: {
-      calories: row.calories,
-      totalFat: row.total_fat,
-      saturatedFat: row.saturated_fat,
-      transFat: row.trans_fat,
-      cholesterol: row.cholesterol,
-      sodium: row.sodium,
-      totalCarbohydrates: row.total_carbohydrates,
-      dietaryFiber: row.dietary_fiber,
-      totalSugars: row.total_sugars,
-      protein: row.protein,
-      vitaminD: row.vitamin_d,
-      calcium: row.calcium,
-      iron: row.iron,
-      potassium: row.potassium,
-    },
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}

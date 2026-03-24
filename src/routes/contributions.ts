@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
+import { formatContribution } from "../services/contribution-format";
 
 export const contributionRoutes = Router();
 
@@ -113,7 +114,7 @@ contributionRoutes.get("/", (req: Request, res: Response) => {
   const contributions = db.prepare(sql).all(params);
 
   res.json({
-    contributions: contributions.map(formatContribution),
+    contributions: contributions.map((c) => formatContribution(c)),
     total,
     limit,
     offset,
@@ -136,15 +137,3 @@ contributionRoutes.get("/:id", (req: Request, res: Response) => {
   res.json(formatContribution(contribution));
 });
 
-function formatContribution(row: any) {
-  return {
-    id: row.id,
-    type: row.type,
-    status: row.status,
-    foodId: row.food_id,
-    data: JSON.parse(row.data),
-    createdAt: row.created_at,
-    reviewedAt: row.reviewed_at,
-    reviewerNote: row.reviewer_note,
-  };
-}

@@ -1,9 +1,13 @@
 import { Router, Request, Response } from "express";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
 import { detectAllergens, detectDietaryTags } from "../services/food-analysis";
 import { calculateNutriScore } from "../services/nutrition-score";
+import {
+  parseBase64Image,
+  parseGeminiJson,
+  getGeminiModel,
+} from "../services/gemini-utils";
 
 export const scanRoutes = Router();
 
@@ -58,24 +62,13 @@ scanRoutes.post("/label", async (req: Request, res: Response) => {
       return;
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const model = getGeminiModel("gemini-1.5-flash");
+    if (!model) {
       res.status(503).json({ error: "Nutrition label scanning is not configured. GEMINI_API_KEY is missing." });
       return;
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    // Strip data URI prefix if present (e.g. "data:image/png;base64,...")
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
-
-    // Detect MIME type from prefix or default to jpeg
-    let mimeType = "image/jpeg";
-    const dataUriMatch = image.match(/^data:(image\/\w+);base64,/);
-    if (dataUriMatch) {
-      mimeType = dataUriMatch[1];
-    }
+    const { base64Data, mimeType } = parseBase64Image(image);
 
     const imagePart = {
       inlineData: {
@@ -107,28 +100,13 @@ scanRoutes.post("/label", async (req: Request, res: Response) => {
     const responseText = result.response.text();
 
     // Parse the JSON from Gemini's response
-    let extracted: any;
-    try {
-      // Try direct parse first
-      extracted = JSON.parse(responseText);
-    } catch {
-      // Try extracting JSON from markdown code fences
-      const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (jsonMatch) {
-        extracted = JSON.parse(jsonMatch[1].trim());
-      } else {
-        // Try finding JSON object in the response
-        const objectMatch = responseText.match(/\{[\s\S]*\}/);
-        if (objectMatch) {
-          extracted = JSON.parse(objectMatch[0]);
-        } else {
-          res.status(422).json({
-            error: "Could not parse nutrition data from the image. Try a clearer photo.",
-            raw_response: responseText,
-          });
-          return;
-        }
-      }
+    const extracted = parseGeminiJson(responseText);
+    if (!extracted) {
+      res.status(422).json({
+        error: "Could not parse nutrition data from the image. Try a clearer photo.",
+        raw_response: responseText,
+      });
+      return;
     }
 
     // For barcode format, return early with just the barcode

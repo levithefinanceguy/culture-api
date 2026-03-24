@@ -1,7 +1,16 @@
 import { Router, Request, Response } from "express";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import db from "../data/database";
-import { fuzzySearchSingle } from "../services/fuzzy-search";
+import { searchFood } from "../services/food-search";
+import {
+  NutritionValues,
+  NUTRITION_KEYS,
+  scaleNutrition,
+  sumNutrition,
+  UNIT_TO_GRAMS,
+  COMMON_FOOD_WEIGHTS,
+  UNIT_FOOD_WEIGHTS,
+  estimateGrams,
+} from "../services/nutrition-utils";
 
 export const parseRoutes = Router();
 
@@ -26,45 +35,11 @@ interface FoodMatch {
   serving_unit: string;
 }
 
-interface NutritionValues {
-  calories: number;
-  total_fat: number;
-  saturated_fat: number;
-  trans_fat: number;
-  cholesterol: number;
-  sodium: number;
-  total_carbohydrates: number;
-  dietary_fiber: number;
-  total_sugars: number;
-  protein: number;
-  vitamin_d: number | null;
-  calcium: number | null;
-  iron: number | null;
-  potassium: number | null;
-}
-
 interface GeminiParsedItem {
   food: string;
   quantity_grams: number;
   original_text: string;
 }
-
-const NUTRITION_KEYS: (keyof NutritionValues)[] = [
-  "calories",
-  "total_fat",
-  "saturated_fat",
-  "trans_fat",
-  "cholesterol",
-  "sodium",
-  "total_carbohydrates",
-  "dietary_fiber",
-  "total_sugars",
-  "protein",
-  "vitamin_d",
-  "calcium",
-  "iron",
-  "potassium",
-];
 
 // --- Gemini AI parser ---
 
@@ -148,105 +123,7 @@ async function parseWithGemini(
   }
 }
 
-// --- Unit conversion to grams (used by fallback parser) ---
-
-const UNIT_TO_GRAMS: Record<string, number> = {
-  g: 1,
-  gram: 1,
-  grams: 1,
-  kg: 1000,
-  kilogram: 1000,
-  kilograms: 1000,
-  oz: 28.3495,
-  ounce: 28.3495,
-  ounces: 28.3495,
-  lb: 453.592,
-  pound: 453.592,
-  pounds: 453.592,
-  ml: 1,
-  milliliter: 1,
-  milliliters: 1,
-  l: 1000,
-  liter: 1000,
-  liters: 1000,
-  cup: 240,
-  cups: 240,
-  tbsp: 14.787,
-  tablespoon: 14.787,
-  tablespoons: 14.787,
-  tsp: 4.929,
-  teaspoon: 4.929,
-  teaspoons: 4.929,
-};
-
-const COMMON_FOOD_WEIGHTS: Record<string, number> = {
-  egg: 50,
-  eggs: 50,
-  banana: 118,
-  bananas: 118,
-  apple: 182,
-  apples: 182,
-  orange: 131,
-  oranges: 131,
-  avocado: 150,
-  avocados: 150,
-  potato: 150,
-  potatoes: 150,
-  tomato: 123,
-  tomatoes: 123,
-  "chicken breast": 174,
-  "chicken breasts": 174,
-  tortilla: 45,
-  tortillas: 45,
-  bagel: 105,
-  bagels: 105,
-  muffin: 57,
-  muffins: 57,
-  cookie: 30,
-  cookies: 30,
-  donut: 60,
-  donuts: 60,
-  pancake: 77,
-  pancakes: 77,
-  waffle: 75,
-  waffles: 75,
-};
-
-const UNIT_FOOD_WEIGHTS: Record<string, Record<string, number>> = {
-  slice: {
-    bread: 30,
-    toast: 30,
-    pizza: 107,
-    cheese: 21,
-    bacon: 8,
-    ham: 28,
-    turkey: 28,
-    cake: 80,
-    pie: 125,
-    default: 30,
-  },
-  piece: {
-    chicken: 120,
-    chocolate: 10,
-    candy: 10,
-    fruit: 100,
-    sushi: 30,
-    default: 100,
-  },
-  strip: {
-    bacon: 8,
-    chicken: 28,
-    default: 20,
-  },
-  patty: {
-    beef: 113,
-    hamburger: 113,
-    burger: 113,
-    turkey: 113,
-    chicken: 113,
-    default: 113,
-  },
-};
+// --- Number words (used by fallback parser) ---
 
 const NUMBER_WORDS: Record<string, number> = {
   zero: 0,
@@ -432,12 +309,11 @@ function fallbackParse(input: string): ParsedItem[] {
         serving_unit: match.serving_unit,
       };
 
-      const grams = getGramsForItem(
+      const grams = estimateGrams(
         quantity,
         unit,
         food_query,
-        match.serving_size,
-        match.serving_unit
+        match.serving_size
       );
 
       nutrition = scaleNutrition(match, grams);
@@ -455,218 +331,6 @@ function fallbackParse(input: string): ParsedItem[] {
   }
 
   return parsedItems;
-}
-
-// --- Database search ---
-
-function searchFood(query: string): any | null {
-  const cleanQuery = query
-    .toLowerCase()
-    .replace(/[^\w\s]/g, "")
-    .trim();
-
-  if (!cleanQuery) return null;
-
-  const words = cleanQuery.split(/\s+/).filter((w) => w.length > 0);
-
-  const rankExpr = `
-      fts.rank
-      + CASE WHEN lower(f.name) = lower(@rawQuery) THEN -1000 ELSE 0 END
-      + CASE WHEN f.brand IS NULL OR f.brand = '' THEN -50 ELSE 0 END
-      + CASE WHEN f.source = 'usda' THEN -30 ELSE 0 END
-      + length(f.name) * 0.5`;
-
-  // Strategy 1: exact phrase match
-  try {
-    const phraseQuery = `"${words.join(" ")}"`;
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: phraseQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 2: all words with prefix matching
-  try {
-    const ftsQuery = words.map((w) => `"${w}"*`).join(" ");
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: ftsQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 3: OR logic
-  try {
-    const ftsQuery = words.map((w) => `"${w}"*`).join(" OR ");
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: ftsQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 4: LIKE fallback
-  try {
-    const result = db
-      .prepare(
-        `SELECT * FROM foods
-         WHERE lower(name) LIKE @pattern
-         ORDER BY
-           CASE WHEN lower(name) = lower(@rawQuery) THEN 0 ELSE 1 END,
-           CASE WHEN brand IS NULL OR brand = '' THEN 0 ELSE 1 END,
-           CASE WHEN source = 'usda' THEN 0 ELSE 1 END,
-           length(name) ASC
-         LIMIT 1`
-      )
-      .get({ pattern: `%${cleanQuery}%`, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 5: Fuzzy search fallback (abbreviations, typo correction)
-  try {
-    const fuzzyResult = fuzzySearchSingle(cleanQuery);
-    if (fuzzyResult.food) return fuzzyResult.food;
-  } catch {}
-
-  return null;
-}
-
-// --- Nutrition scaling ---
-
-function getGramsForItem(
-  quantity: number,
-  unit: string,
-  foodQuery: string,
-  dbServingSize: number,
-  dbServingUnit: string
-): number {
-  const foodLower = foodQuery.toLowerCase();
-
-  if (unit === "g") return quantity;
-
-  if (unit in UNIT_TO_GRAMS) {
-    return quantity * UNIT_TO_GRAMS[unit];
-  }
-
-  if (unit in UNIT_FOOD_WEIGHTS) {
-    const unitMap = UNIT_FOOD_WEIGHTS[unit];
-    for (const [food, grams] of Object.entries(unitMap)) {
-      if (food !== "default" && foodLower.includes(food)) {
-        return quantity * grams;
-      }
-    }
-    return quantity * (unitMap.default || 30);
-  }
-
-  if (unit === "whole") {
-    for (const [food, grams] of Object.entries(COMMON_FOOD_WEIGHTS)) {
-      if (foodLower.includes(food) || food.includes(foodLower)) {
-        return quantity * grams;
-      }
-    }
-
-    const countableUnits = [
-      "piece",
-      "each",
-      "item",
-      "whole",
-      "slice",
-      "serving",
-    ];
-    if (
-      countableUnits.some((u) =>
-        dbServingUnit.toLowerCase().includes(u)
-      )
-    ) {
-      return quantity * dbServingSize;
-    }
-
-    return quantity * dbServingSize;
-  }
-
-  return quantity * dbServingSize;
-}
-
-function scaleNutrition(
-  food: any,
-  grams: number
-): NutritionValues {
-  const servingGrams = food.serving_size || 100;
-  const factor = grams / servingGrams;
-
-  const round2 = (n: number | null) =>
-    n != null ? Math.round(n * factor * 100) / 100 : null;
-
-  return {
-    calories: round2(food.calories) ?? 0,
-    total_fat: round2(food.total_fat) ?? 0,
-    saturated_fat: round2(food.saturated_fat) ?? 0,
-    trans_fat: round2(food.trans_fat) ?? 0,
-    cholesterol: round2(food.cholesterol) ?? 0,
-    sodium: round2(food.sodium) ?? 0,
-    total_carbohydrates: round2(food.total_carbohydrates) ?? 0,
-    dietary_fiber: round2(food.dietary_fiber) ?? 0,
-    total_sugars: round2(food.total_sugars) ?? 0,
-    protein: round2(food.protein) ?? 0,
-    vitamin_d: round2(food.vitamin_d),
-    calcium: round2(food.calcium),
-    iron: round2(food.iron),
-    potassium: round2(food.potassium),
-  };
-}
-
-function sumNutrition(items: NutritionValues[]): NutritionValues {
-  const totals: NutritionValues = {
-    calories: 0,
-    total_fat: 0,
-    saturated_fat: 0,
-    trans_fat: 0,
-    cholesterol: 0,
-    sodium: 0,
-    total_carbohydrates: 0,
-    dietary_fiber: 0,
-    total_sugars: 0,
-    protein: 0,
-    vitamin_d: null,
-    calcium: null,
-    iron: null,
-    potassium: null,
-  };
-
-  for (const item of items) {
-    for (const key of NUTRITION_KEYS) {
-      const val = item[key];
-      if (val != null) {
-        (totals as any)[key] =
-          ((totals as any)[key] ?? 0) + val;
-      }
-    }
-  }
-
-  for (const key of NUTRITION_KEYS) {
-    const val = (totals as any)[key];
-    if (val != null) {
-      (totals as any)[key] = Math.round(val * 100) / 100;
-    }
-  }
-
-  return totals;
 }
 
 // --- Confidence scoring ---

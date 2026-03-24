@@ -1,8 +1,17 @@
 import { Router, Request, Response } from "express";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
-import { fuzzySearchSingle } from "../services/fuzzy-search";
+import { searchFood } from "../services/food-search";
+import {
+  NutritionValues,
+  NUTRITION_KEYS,
+  sumNutrition,
+} from "../services/nutrition-utils";
+import {
+  parseBase64Image,
+  parseGeminiJson,
+  getGeminiModel,
+} from "../services/gemini-utils";
 import { applyCustomizations } from "./customize";
 
 export const orderRoutes = Router();
@@ -22,40 +31,6 @@ interface GeminiOrderResult {
   platform: string | null;
   items: OrderItem[];
 }
-
-interface NutritionValues {
-  calories: number;
-  total_fat: number;
-  saturated_fat: number;
-  trans_fat: number;
-  cholesterol: number;
-  sodium: number;
-  total_carbohydrates: number;
-  dietary_fiber: number;
-  total_sugars: number;
-  protein: number;
-  vitamin_d: number | null;
-  calcium: number | null;
-  iron: number | null;
-  potassium: number | null;
-}
-
-const NUTRITION_KEYS: (keyof NutritionValues)[] = [
-  "calories",
-  "total_fat",
-  "saturated_fat",
-  "trans_fat",
-  "cholesterol",
-  "sodium",
-  "total_carbohydrates",
-  "dietary_fiber",
-  "total_sugars",
-  "protein",
-  "vitamin_d",
-  "calcium",
-  "iron",
-  "potassium",
-];
 
 // --- Order scans table ---
 
@@ -112,78 +87,38 @@ If the image does not contain a food order, return: { "restaurant": null, "platf
 
 // --- Helpers ---
 
-function parseBase64Image(image: string): { base64Data: string; mimeType: string } {
-  const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
-  let mimeType = "image/jpeg";
-  const dataUriMatch = image.match(/^data:(image\/\w+);base64,/);
-  if (dataUriMatch) {
-    mimeType = dataUriMatch[1];
-  }
-  return { base64Data, mimeType };
+function searchFoodByQuery(query: string, brand?: string | null): any | null {
+  return searchFood(query, {
+    brandFilter: brand || undefined,
+    penalizeCommunity: true,
+  });
 }
 
-function parseGeminiJson(responseText: string): any {
-  try {
-    return JSON.parse(responseText);
-  } catch {
-    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[1].trim());
-    }
-    const objMatch = responseText.match(/\{[\s\S]*\}/);
-    if (objMatch) {
-      return JSON.parse(objMatch[0]);
-    }
-    return null;
-  }
-}
+function searchFoodWithSize(
+  itemName: string,
+  size: string | null,
+  brand: string | null
+): any | null {
+  // If a size is specified, try searching with the size included in the name
+  if (size) {
+    const withSize = searchFoodByQuery(`${size} ${itemName}`, brand);
+    if (withSize) return withSize;
 
-function searchFood(query: string, brand?: string | null): any | null {
-  const cleanQuery = query
-    .toLowerCase()
-    .replace(/[^\w\s]/g, "")
-    .trim();
+    const sizeAfter = searchFoodByQuery(`${itemName} ${size}`, brand);
+    if (sizeAfter) return sizeAfter;
 
-  if (!cleanQuery) return null;
-
-  const words = cleanQuery.split(/\s+/).filter((w) => w.length > 0);
-
-  const rankExpr = `
-      fts.rank
-      + CASE WHEN lower(f.name) = lower(@rawQuery) THEN -1000 ELSE 0 END
-      + CASE WHEN f.brand IS NULL OR f.brand = '' THEN -50 ELSE 0 END
-      + CASE WHEN f.source = 'usda' THEN -30 ELSE 0 END
-      + CASE WHEN f.source = 'community' THEN 20 ELSE 0 END
-      + length(f.name) * 0.5`;
-
-  // If we have a brand/restaurant, try brand-filtered search first
-  if (brand) {
-    const brandClean = brand.toLowerCase().replace(/[^\w\s]/g, "").trim();
+    // Also try matching via size_variant column
+    const cleanQuery = itemName.toLowerCase().replace(/[^\w\s]/g, "").trim();
     try {
-      const phraseQuery = `"${words.join(" ")}"`;
       const result = db
         .prepare(
-          `SELECT f.* FROM foods f
-           JOIN foods_fts fts ON f.rowid = fts.rowid
-           WHERE foods_fts MATCH @q AND lower(f.brand) LIKE @brand
-           ORDER BY (${rankExpr})
+          `SELECT * FROM foods
+           WHERE lower(name) LIKE @pattern
+             AND lower(size_variant) = @size
+           ORDER BY length(name) ASC
            LIMIT 1`
         )
-        .get({ q: phraseQuery, rawQuery: cleanQuery, brand: `%${brandClean}%` });
-      if (result) return result;
-    } catch {}
-
-    try {
-      const ftsQuery = words.map((w) => `"${w}"*`).join(" ");
-      const result = db
-        .prepare(
-          `SELECT f.* FROM foods f
-           JOIN foods_fts fts ON f.rowid = fts.rowid
-           WHERE foods_fts MATCH @q AND lower(f.brand) LIKE @brand
-           ORDER BY (${rankExpr})
-           LIMIT 1`
-        )
-        .get({ q: ftsQuery, rawQuery: cleanQuery, brand: `%${brandClean}%` });
+        .get({ pattern: `%${cleanQuery}%`, size: size.toLowerCase() });
       if (result) return result;
     } catch {}
   }
@@ -191,6 +126,7 @@ function searchFood(query: string, brand?: string | null): any | null {
   // Also try meal_components for chain restaurants
   if (brand) {
     try {
+      const cleanQuery = itemName.toLowerCase().replace(/[^\w\s]/g, "").trim();
       const component = db
         .prepare(
           `SELECT * FROM meal_components
@@ -234,108 +170,7 @@ function searchFood(query: string, brand?: string | null): any | null {
     } catch {}
   }
 
-  // Generic search (no brand filter)
-  // Strategy 1: exact phrase match
-  try {
-    const phraseQuery = `"${words.join(" ")}"`;
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: phraseQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 2: all words with prefix matching
-  try {
-    const ftsQuery = words.map((w) => `"${w}"*`).join(" ");
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: ftsQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 3: OR logic
-  try {
-    const ftsQuery = words.map((w) => `"${w}"*`).join(" OR ");
-    const result = db
-      .prepare(
-        `SELECT f.* FROM foods f
-         JOIN foods_fts fts ON f.rowid = fts.rowid
-         WHERE foods_fts MATCH @q
-         ORDER BY (${rankExpr})
-         LIMIT 1`
-      )
-      .get({ q: ftsQuery, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 4: LIKE fallback
-  try {
-    const result = db
-      .prepare(
-        `SELECT * FROM foods
-         WHERE lower(name) LIKE @pattern
-         ORDER BY
-           CASE WHEN lower(name) = lower(@rawQuery) THEN 0 ELSE 1 END,
-           CASE WHEN brand IS NULL OR brand = '' THEN 0 ELSE 1 END,
-           CASE WHEN source = 'usda' THEN 0 ELSE 1 END,
-           length(name) ASC
-         LIMIT 1`
-      )
-      .get({ pattern: `%${cleanQuery}%`, rawQuery: cleanQuery });
-    if (result) return result;
-  } catch {}
-
-  // Strategy 5: Fuzzy search fallback
-  try {
-    const fuzzyResult = fuzzySearchSingle(cleanQuery);
-    if (fuzzyResult.food) return fuzzyResult.food;
-  } catch {}
-
-  return null;
-}
-
-function searchFoodWithSize(
-  itemName: string,
-  size: string | null,
-  brand: string | null
-): any | null {
-  // If a size is specified, try searching with the size included in the name
-  if (size) {
-    const withSize = searchFood(`${size} ${itemName}`, brand);
-    if (withSize) return withSize;
-
-    const sizeAfter = searchFood(`${itemName} ${size}`, brand);
-    if (sizeAfter) return sizeAfter;
-
-    // Also try matching via size_variant column
-    const cleanQuery = itemName.toLowerCase().replace(/[^\w\s]/g, "").trim();
-    try {
-      const result = db
-        .prepare(
-          `SELECT * FROM foods
-           WHERE lower(name) LIKE @pattern
-             AND lower(size_variant) = @size
-           ORDER BY length(name) ASC
-           LIMIT 1`
-        )
-        .get({ pattern: `%${cleanQuery}%`, size: size.toLowerCase() });
-      if (result) return result;
-    } catch {}
-  }
-
-  return searchFood(itemName, brand);
+  return searchFoodByQuery(itemName, brand);
 }
 
 function getNutrition(food: any, quantity: number): NutritionValues {
@@ -361,51 +196,11 @@ function getNutrition(food: any, quantity: number): NutritionValues {
   };
 }
 
-function sumNutrition(items: NutritionValues[]): NutritionValues {
-  const totals: NutritionValues = {
-    calories: 0,
-    total_fat: 0,
-    saturated_fat: 0,
-    trans_fat: 0,
-    cholesterol: 0,
-    sodium: 0,
-    total_carbohydrates: 0,
-    dietary_fiber: 0,
-    total_sugars: 0,
-    protein: 0,
-    vitamin_d: null,
-    calcium: null,
-    iron: null,
-    potassium: null,
-  };
-
-  for (const item of items) {
-    for (const key of NUTRITION_KEYS) {
-      const val = item[key];
-      if (val != null) {
-        (totals as any)[key] = ((totals as any)[key] ?? 0) + val;
-      }
-    }
-  }
-
-  for (const key of NUTRITION_KEYS) {
-    const val = (totals as any)[key];
-    if (val != null) {
-      (totals as any)[key] = Math.round(val * 100) / 100;
-    }
-  }
-
-  return totals;
-}
-
 async function analyzeOrderScreenshot(image: string): Promise<GeminiOrderResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  const model = getGeminiModel();
+  if (!model) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
   const { base64Data, mimeType } = parseBase64Image(image);
 
@@ -752,8 +547,6 @@ orderRoutes.post("/calculate", (req: Request, res: Response) => {
           }
           updatedItem.nutrition = baseNutrition;
         }
-      } else if (!updatedItem.selected) {
-        // Keep nutrition on the item for reference but it won't count in totals
       }
 
       return updatedItem;
