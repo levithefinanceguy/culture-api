@@ -162,13 +162,15 @@ app.use("/api/v1", authenticateApiKey, healthRoutes);
 app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
-const server = app.listen(PORT, () => {
-  console.log(`Culture API running on port ${PORT}`);
-});
+// Only start the server if this file is run directly (not imported by tests)
+const server = require.main === module
+  ? app.listen(PORT, () => { console.log(`Culture API running on port ${PORT}`); })
+  : null;
 
 // Graceful shutdown: close the database and server on SIGTERM/SIGINT
 function gracefulShutdown(signal: string): void {
   console.log(`\n[${new Date().toISOString()}] Received ${signal}. Shutting down gracefully...`);
+  if (!server) { db.close(); process.exit(0); return; }
   server.close(() => {
     console.log("HTTP server closed.");
     db.close();

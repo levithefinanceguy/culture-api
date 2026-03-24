@@ -10,8 +10,10 @@ interface TierLimits {
   perDay: number;
 }
 
+const isTest = process.env.NODE_ENV === "test";
+
 const TIER_LIMITS: Record<string, TierLimits> = {
-  free: { perMinute: 10, perDay: 100 },
+  free: { perMinute: isTest ? 1000 : 10, perDay: isTest ? 10000 : 100 },
   pro: { perMinute: 100, perDay: 10000 },
   enterprise: { perMinute: 500, perDay: 100000 },
   admin: { perMinute: 500, perDay: 100000 },

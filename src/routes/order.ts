@@ -58,7 +58,9 @@ function cleanupExpiredScans(): void {
   }
 }
 cleanupExpiredScans();
-setInterval(cleanupExpiredScans, 60 * 60 * 1000); // Every hour
+if (process.env.NODE_ENV !== "test") {
+  setInterval(cleanupExpiredScans, 60 * 60 * 1000);
+}
 
 // --- Gemini prompt ---
 
