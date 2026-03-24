@@ -2,6 +2,12 @@ import { Router, Request, Response, NextFunction } from "express";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
 import { formatContribution } from "../services/contribution-format";
+import {
+  updateChainMenu,
+  updateAllChainMenus,
+  getRegisteredChains,
+  CHAIN_URLS,
+} from "../services/menu-updater";
 
 export const adminRoutes = Router();
 
@@ -214,4 +220,49 @@ function applyBarcodeAdd(foodId: string, data: any) {
     foodId,
   );
 }
+
+// Trigger menu update for one or all chains
+adminRoutes.post("/update-menus", async (req: Request, res: Response) => {
+  const { chain } = req.body;
+
+  if (!chain) {
+    res.status(400).json({ error: 'Required: { "chain": "Taco Bell" } or { "chain": "all" }' });
+    return;
+  }
+
+  try {
+    if (chain === "all") {
+      const results = await updateAllChainMenus();
+
+      const totalNew = results.reduce((sum, r) => sum + r.newItemCount, 0);
+      const totalExtracted = results.reduce((sum, r) => sum + r.extractedCount, 0);
+      const totalErrors = results.reduce((sum, r) => sum + r.errors.length, 0);
+
+      res.json({
+        message: `Checked ${results.length} chains`,
+        totalNewItems: totalNew,
+        totalExtracted,
+        totalErrors,
+        chains: results,
+      });
+    } else {
+      if (!CHAIN_URLS[chain]) {
+        res.status(400).json({
+          error: `Unknown chain: "${chain}"`,
+          registeredChains: getRegisteredChains(),
+        });
+        return;
+      }
+
+      const result = await updateChainMenu(chain);
+
+      res.json({
+        message: `Checked ${chain}`,
+        ...result,
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: `Menu update failed: ${err.message}` });
+  }
+});
 

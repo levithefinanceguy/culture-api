@@ -405,8 +405,16 @@ const HTML = `<!DOCTYPE html>
     <button data-section="servings">Servings</button>
     <button data-section="parse">Parse</button>
     <button data-section="scan">Scan</button>
-    <button data-section="vendors">Vendors</button>
+    <button data-section="photo">Photo</button>
+    <button data-section="recipe">Recipe</button>
+    <button data-section="order">Order</button>
+    <button data-section="customize">Customize</button>
     <button data-section="meals">Meals</button>
+    <button data-section="swaps">Swaps</button>
+    <button data-section="alternatives">Alternatives</button>
+    <button data-section="health">Health Score</button>
+    <button data-section="preferences">Preferences</button>
+    <button data-section="vendors">Vendors</button>
     <button data-section="contributions">Contributions</button>
     <button data-section="admin">Admin</button>
     <button data-section="rate-limits">Rate Limits</button>
@@ -437,6 +445,34 @@ const HTML = `<!DOCTYPE html>
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <button class="try-btn" onclick="tryRequest(this, 'GET', '/')">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /health -->
+    <div class="endpoint" data-group="public">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/health</span>
+        <span class="endpoint-desc">Health check</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Returns API health status, uptime, food count, and version.</p>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"status"</span>: <span class="str">"ok"</span>,
+  <span class="key">"uptime"</span>: <span class="num">12345.67</span>,
+  <span class="key">"foodCount"</span>: <span class="num">8463</span>,
+  <span class="key">"version"</span>: <span class="str">"1.0.0"</span>
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/health')">Send Request</button>
           <div class="try-result"></div>
         </div>
       </div>
@@ -546,7 +582,7 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Searches the food database using FTS5 full-text search. Returns paginated results ranked by relevance with custom scoring that prefers exact matches, shorter names, unbranded foods, and USDA sources.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Searches the food database using FTS5 full-text search with fuzzy matching fallback and Open Food Facts as a final fallback. Returns paginated results ranked by relevance.</p>
 
         <div class="detail-label">Query Parameters</div>
         <table class="param-table">
@@ -555,9 +591,12 @@ const HTML = `<!DOCTYPE html>
           <tr><td>limit</td><td>integer</td><td><span class="optional">optional</span></td><td>Results per page (default 25, max 100)</td></tr>
           <tr><td>offset</td><td>integer</td><td><span class="optional">optional</span></td><td>Pagination offset (default 0)</td></tr>
           <tr><td>source</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by source (e.g. "usda", "vendor", "community")</td></tr>
+          <tr><td>grade</td><td>string</td><td><span class="optional">optional</span></td><td>Comma-separated Nutri-Score grades (e.g. "A,B")</td></tr>
+          <tr><td>min_score</td><td>integer</td><td><span class="optional">optional</span></td><td>Minimum Culture Score (0-100)</td></tr>
           <tr><td>allergen_free</td><td>string</td><td><span class="optional">optional</span></td><td>Comma-separated allergens to exclude (e.g. "gluten,dairy")</td></tr>
           <tr><td>dietary</td><td>string</td><td><span class="optional">optional</span></td><td>Comma-separated dietary tags to require (e.g. "vegan,high-protein")</td></tr>
-          <tr><td>grade</td><td>string</td><td><span class="optional">optional</span></td><td>Comma-separated Nutri-Score grades to filter (e.g. "A,B")</td></tr>
+          <tr><td>gi</td><td>string</td><td><span class="optional">optional</span></td><td>Glycemic index level filter (low, medium, high)</td></tr>
+          <tr><td>fuzzy</td><td>string</td><td><span class="optional">optional</span></td><td>Set to "false" to disable fuzzy matching</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
@@ -582,7 +621,8 @@ const HTML = `<!DOCTYPE html>
   ],
   <span class="key">"total"</span>: <span class="num">143</span>,
   <span class="key">"limit"</span>: <span class="num">25</span>,
-  <span class="key">"offset"</span>: <span class="num">0</span>
+  <span class="key">"offset"</span>: <span class="num">0</span>,
+  <span class="key">"did_you_mean"</span>: <span class="null">null</span>
 }</pre>
 
         <div class="try-it">
@@ -597,6 +637,49 @@ const HTML = `<!DOCTYPE html>
             <input class="try-input" data-param="grade" placeholder="grade (A,B)" style="max-width:120px" />
           </div>
           <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/foods/search', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/foods/barcode/:code -->
+    <div class="endpoint" data-group="foods">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/foods/barcode/:code</span>
+        <span class="endpoint-desc">Barcode lookup (with Open Food Facts fallback)</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Look up a food by its barcode (UPC/EAN). Searches Culture DB first, then falls back to Open Food Facts. Valid OFF results are auto-imported into Culture.</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>code</td><td>string</td><td><span class="required">required</span></td><td>Barcode (UPC/EAN)</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"id"</span>: <span class="str">"off-0049000006346"</span>,
+  <span class="key">"name"</span>: <span class="str">"Coca-Cola Classic"</span>,
+  <span class="key">"brand"</span>: <span class="str">"Coca-Cola"</span>,
+  <span class="key">"barcode"</span>: <span class="str">"0049000006346"</span>,
+  <span class="key">"nutrition"</span>: {
+    <span class="key">"calories"</span>: <span class="num">140</span>,
+    <span class="key">"totalSugars"</span>: <span class="num">39</span>,
+    <span class="key">"sodium"</span>: <span class="num">45</span>
+  }
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <label>Barcode</label>
+            <input class="try-input" data-path="code" placeholder="0049000006346" />
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/foods/barcode/:code', true)">Send Request</button>
           <div class="try-result"></div>
         </div>
       </div>
@@ -693,7 +776,7 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns detailed nutrition information for a single food item. If the food is a vendor recipe, the response includes the recipe ingredients breakdown.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Returns detailed nutrition information for a single food item. If the food is a recipe, the response includes the recipe ingredients breakdown.</p>
 
         <div class="detail-label">Path Parameters</div>
         <table class="param-table">
@@ -710,8 +793,6 @@ const HTML = `<!DOCTYPE html>
   <span class="key">"servingSize"</span>: <span class="num">100</span>,
   <span class="key">"servingUnit"</span>: <span class="str">"g"</span>,
   <span class="key">"source"</span>: <span class="str">"usda"</span>,
-  <span class="key">"allergens"</span>: [],
-  <span class="key">"dietaryTags"</span>: [],
   <span class="key">"nutriScore"</span>: <span class="num">-2</span>,
   <span class="key">"nutriGrade"</span>: <span class="str">"A"</span>,
   <span class="key">"nutrition"</span>: {
@@ -724,11 +805,7 @@ const HTML = `<!DOCTYPE html>
     <span class="key">"totalCarbohydrates"</span>: <span class="num">0</span>,
     <span class="key">"dietaryFiber"</span>: <span class="num">0</span>,
     <span class="key">"totalSugars"</span>: <span class="num">0</span>,
-    <span class="key">"protein"</span>: <span class="num">31</span>,
-    <span class="key">"vitaminD"</span>: <span class="num">0.1</span>,
-    <span class="key">"calcium"</span>: <span class="num">15</span>,
-    <span class="key">"iron"</span>: <span class="num">1.04</span>,
-    <span class="key">"potassium"</span>: <span class="num">256</span>
+    <span class="key">"protein"</span>: <span class="num">31</span>
   }
 }</pre>
 
@@ -744,44 +821,39 @@ const HTML = `<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- GET /api/v1/foods/barcode/:code -->
+    <!-- POST /api/v1/foods/import -->
     <div class="endpoint" data-group="foods">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/api/v1/foods/barcode/:code</span>
-        <span class="endpoint-desc">Barcode lookup</span>
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/foods/import</span>
+        <span class="endpoint-desc">Import food from Open Food Facts</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Look up a food by its barcode (UPC/EAN). Returns full nutrition data if found.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Imports a provisional Open Food Facts result into Culture's database. Provide either a barcode to look up, or a full OFF food object to import directly.</p>
 
-        <div class="detail-label">Path Parameters</div>
+        <div class="detail-label">Request Body</div>
         <table class="param-table">
-          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>code</td><td>string</td><td><span class="required">required</span></td><td>Barcode (UPC/EAN)</td></tr>
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>barcode</td><td>string</td><td><span class="optional">one of</span></td><td>Barcode to look up and import from OFF</td></tr>
+          <tr><td>food</td><td>object</td><td><span class="optional">one of</span></td><td>Full OFF food object to import directly</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"id"</span>: <span class="str">"off-0049000006346"</span>,
-  <span class="key">"name"</span>: <span class="str">"Coca-Cola Classic"</span>,
-  <span class="key">"brand"</span>: <span class="str">"Coca-Cola"</span>,
-  <span class="key">"barcode"</span>: <span class="str">"0049000006346"</span>,
-  <span class="key">"nutrition"</span>: {
-    <span class="key">"calories"</span>: <span class="num">140</span>,
-    <span class="key">"totalSugars"</span>: <span class="num">39</span>,
-    <span class="key">"sodium"</span>: <span class="num">45</span>
-  }
+  <span class="key">"message"</span>: <span class="str">"Food imported from Open Food Facts and saved to Culture"</span>,
+  <span class="key">"food"</span>: { <span class="key">"id"</span>: <span class="str">"..."</span>, <span class="key">"name"</span>: <span class="str">"..."</span> },
+  <span class="key">"attribution"</span>: <span class="str">"Data from Open Food Facts (openfoodfacts.org), licensed under ODbL"</span>
 }</pre>
 
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
-            <label>Barcode</label>
-            <input class="try-input" data-path="code" placeholder="0049000006346" />
+            <label>Request Body (JSON)</label>
+            <textarea class="try-input" data-body>{ "barcode": "0049000006346" }</textarea>
           </div>
-          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/foods/barcode/:code', true)">Send Request</button>
+          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/foods/import', true)">Send Request</button>
           <div class="try-result"></div>
         </div>
       </div>
@@ -797,12 +869,12 @@ const HTML = `<!DOCTYPE html>
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method get">GET</span>
         <span class="endpoint-path">/api/v1/foods/:id/servings</span>
-        <span class="endpoint-desc">Calculate nutrition for custom serving</span>
+        <span class="endpoint-desc">Calculate nutrition for a custom serving</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Calculates scaled nutrition for a custom serving size. Provide one of: servings, slices, or amount+unit. Useful for calculating nutrition per-slice (pizza, bread) or for custom gram amounts.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Calculates scaled nutrition for a custom serving size. Supports servings count, slice count, or weight amount with unit conversion (g, oz, ml, kg, lb).</p>
 
         <div class="detail-label">Path Parameters</div>
         <table class="param-table">
@@ -813,10 +885,10 @@ const HTML = `<!DOCTYPE html>
         <div class="detail-label">Query Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>slices</td><td>number</td><td><span class="optional">one of</span></td><td>Number of slices (requires servings_per_container on food)</td></tr>
-          <tr><td>servings</td><td>number</td><td><span class="optional">one of</span></td><td>Number of servings</td></tr>
-          <tr><td>amount</td><td>number</td><td><span class="optional">one of</span></td><td>Custom amount in specified unit</td></tr>
-          <tr><td>unit</td><td>string</td><td><span class="optional">optional</span></td><td>Unit for amount: g (default), oz, ml, kg, lb</td></tr>
+          <tr><td>servings</td><td>number</td><td><span class="optional">one of</span></td><td>Number of servings (e.g. 2.5)</td></tr>
+          <tr><td>slices</td><td>number</td><td><span class="optional">one of</span></td><td>Number of slices (for pizza-type items)</td></tr>
+          <tr><td>amount</td><td>number</td><td><span class="optional">one of</span></td><td>Weight amount</td></tr>
+          <tr><td>unit</td><td>string</td><td><span class="optional">optional</span></td><td>Unit for amount: g, oz, ml, kg, lb (default: g)</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
@@ -836,15 +908,11 @@ const HTML = `<!DOCTYPE html>
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
-            <label>Food ID</label>
+            <label>Food ID and serving</label>
             <input class="try-input" data-path="id" placeholder="usda-171077" value="usda-171077" />
-          </div>
-          <div class="try-input-group">
-            <label>Serving parameters (provide one)</label>
             <input class="try-input" data-param="servings" placeholder="servings" style="max-width:100px" value="2" />
-            <input class="try-input" data-param="slices" placeholder="slices" style="max-width:100px" />
             <input class="try-input" data-param="amount" placeholder="amount" style="max-width:100px" />
-            <input class="try-input" data-param="unit" placeholder="unit (g)" style="max-width:100px" />
+            <input class="try-input" data-param="unit" placeholder="unit (g)" style="max-width:80px" />
           </div>
           <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/foods/:id/servings', true)">Send Request</button>
           <div class="try-result"></div>
@@ -857,18 +925,18 @@ const HTML = `<!DOCTYPE html>
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method get">GET</span>
         <span class="endpoint-path">/api/v1/foods/sizes</span>
-        <span class="endpoint-desc">Get size variants for a food</span>
+        <span class="endpoint-desc">Get all size variants for a food</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns all available size variants for a food item (e.g. small, medium, large pizza). Includes per-slice and whole nutrition for each size. Optionally filter by brand.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Returns all size variants for a food (e.g. Small, Medium, Large pizza) with per-slice and whole nutrition for each size.</p>
 
         <div class="detail-label">Query Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
           <tr><td>q</td><td>string</td><td><span class="required">required</span></td><td>Food name to search (e.g. "pepperoni pizza")</td></tr>
-          <tr><td>brand</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by brand name (partial match)</td></tr>
+          <tr><td>brand</td><td>string</td><td><span class="optional">optional</span></td><td>Brand filter (e.g. "Papa Johns")</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
@@ -877,11 +945,11 @@ const HTML = `<!DOCTYPE html>
   <span class="key">"brand"</span>: <span class="str">"Papa Johns"</span>,
   <span class="key">"sizes"</span>: [
     {
-      <span class="key">"id"</span>: <span class="str">"food-uuid"</span>,
-      <span class="key">"size"</span>: <span class="str">"Medium"</span>,
+      <span class="key">"id"</span>: <span class="str">"..."</span>,
+      <span class="key">"size"</span>: <span class="str">"Large"</span>,
       <span class="key">"slices"</span>: <span class="num">8</span>,
-      <span class="key">"per_slice"</span>: { <span class="key">"calories"</span>: <span class="num">230</span> },
-      <span class="key">"whole"</span>: { <span class="key">"calories"</span>: <span class="num">1840</span> }
+      <span class="key">"per_slice"</span>: { <span class="key">"calories"</span>: <span class="num">300</span> },
+      <span class="key">"whole"</span>: { <span class="key">"calories"</span>: <span class="num">2400</span> }
     }
   ]
 }</pre>
@@ -891,7 +959,7 @@ const HTML = `<!DOCTYPE html>
           <div class="try-input-group">
             <label>Search</label>
             <input class="try-input" data-param="q" placeholder="pepperoni pizza" />
-            <input class="try-input" data-param="brand" placeholder="brand" style="max-width:180px" />
+            <input class="try-input" data-param="brand" placeholder="brand (optional)" style="max-width:180px" />
           </div>
           <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/foods/sizes', true)">Send Request</button>
           <div class="try-result"></div>
@@ -902,24 +970,30 @@ const HTML = `<!DOCTYPE html>
 
   <!-- ==================== PARSE ==================== -->
   <div class="section" data-group="parse">
-    <div class="section-title">Parse Endpoint <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+    <div class="section-title">Natural Language Parse <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
 
     <!-- POST /api/v1/parse -->
     <div class="endpoint" data-group="parse">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method post">POST</span>
         <span class="endpoint-path">/api/v1/parse</span>
-        <span class="endpoint-desc">Natural language food parsing</span>
+        <span class="endpoint-desc">Parse natural language food descriptions</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Parse a natural language food description into structured ingredients with nutrition. Supports quantities (numbers, fractions, words like "two"), units (cups, oz, tbsp, slices, pieces), and multiple items separated by commas, "and", or newlines. Max 2000 characters.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Parses a natural language food description into individual items with matched nutrition data. Uses Gemini AI for intelligent parsing with a string-matching fallback. Supports compound descriptions, mixed fractions, and number words.</p>
+
+        <div class="detail-label">Query Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>mode</td><td>string</td><td><span class="optional">optional</span></td><td>Set to "fast" to skip AI and use string matching only</td></tr>
+        </table>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>input</td><td>string</td><td><span class="required">required</span></td><td>Natural language text describing food (e.g. "2 eggs and a slice of toast")</td></tr>
+          <tr><td>input</td><td>string</td><td><span class="required">required</span></td><td>Natural language food description (max 2000 chars)</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
@@ -928,17 +1002,18 @@ const HTML = `<!DOCTYPE html>
   <span class="key">"items"</span>: [
     {
       <span class="key">"original"</span>: <span class="str">"2 eggs"</span>,
-      <span class="key">"quantity"</span>: <span class="num">2</span>,
-      <span class="key">"unit"</span>: <span class="str">"whole"</span>,
+      <span class="key">"quantity"</span>: <span class="num">100</span>,
+      <span class="key">"unit"</span>: <span class="str">"g"</span>,
       <span class="key">"food_query"</span>: <span class="str">"eggs"</span>,
-      <span class="key">"match"</span>: { <span class="key">"id"</span>: <span class="str">"usda-171287"</span>, <span class="key">"name"</span>: <span class="str">"Egg, whole, cooked"</span> },
+      <span class="key">"match"</span>: { <span class="key">"id"</span>: <span class="str">"usda-..."</span>, <span class="key">"name"</span>: <span class="str">"Egg, whole, raw"</span> },
       <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">143</span>, <span class="key">"protein"</span>: <span class="num">12.6</span> },
       <span class="key">"confidence"</span>: <span class="num">0.9</span>
     }
   ],
-  <span class="key">"totals"</span>: { <span class="key">"calories"</span>: <span class="num">222</span>, <span class="key">"protein"</span>: <span class="num">15.3</span> },
+  <span class="key">"totals"</span>: { <span class="key">"calories"</span>: <span class="num">220</span>, <span class="key">"protein"</span>: <span class="num">15</span> },
   <span class="key">"matched"</span>: <span class="num">2</span>,
-  <span class="key">"total_items"</span>: <span class="num">2</span>
+  <span class="key">"total_items"</span>: <span class="num">2</span>,
+  <span class="key">"parser_used"</span>: <span class="str">"gemini"</span>
 }</pre>
 
         <div class="try-it">
@@ -956,19 +1031,19 @@ const HTML = `<!DOCTYPE html>
 
   <!-- ==================== SCAN ==================== -->
   <div class="section" data-group="scan">
-    <div class="section-title">Scan Endpoints <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+    <div class="section-title">Label Scan <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
 
     <!-- POST /api/v1/scan/label -->
     <div class="endpoint" data-group="scan">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method post">POST</span>
         <span class="endpoint-path">/api/v1/scan/label</span>
-        <span class="endpoint-desc">Extract nutrition from image</span>
+        <span class="endpoint-desc">Scan a nutrition label, barcode, or menu</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Accepts a base64-encoded image and uses AI (Gemini) to extract structured nutrition data. Supports nutrition labels, barcodes, and menus. Returns extracted data with auto-detected allergens, dietary tags, and Nutri-Score.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Accepts a base64-encoded image and uses Gemini AI to extract nutrition data. Supports nutrition labels, barcodes, and restaurant menus.</p>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
@@ -981,16 +1056,14 @@ const HTML = `<!DOCTYPE html>
         <pre>{
   <span class="key">"format"</span>: <span class="str">"nutrition_label"</span>,
   <span class="key">"nutrition"</span>: {
-    <span class="key">"name"</span>: <span class="str">"Granola Bar"</span>,
-    <span class="key">"calories"</span>: <span class="num">190</span>,
-    <span class="key">"protein"</span>: <span class="num">3</span>,
-    <span class="key">"total_fat"</span>: <span class="num">7</span>,
-    <span class="key">"total_carbohydrates"</span>: <span class="num">29</span>
+    <span class="key">"name"</span>: <span class="str">"Protein Bar"</span>,
+    <span class="key">"calories"</span>: <span class="num">210</span>,
+    <span class="key">"protein"</span>: <span class="num">20</span>,
+    <span class="key">"total_fat"</span>: <span class="num">7</span>
   },
-  <span class="key">"allergens"</span>: [<span class="str">"gluten"</span>, <span class="str">"nuts"</span>],
-  <span class="key">"dietary_tags"</span>: [<span class="str">"vegetarian"</span>],
-  <span class="key">"nutri_score"</span>: { <span class="key">"score"</span>: <span class="num">5</span>, <span class="key">"grade"</span>: <span class="str">"C"</span> },
-  <span class="key">"message"</span>: <span class="str">"Review the extracted data and submit it via POST /api/v1/scan/submit"</span>
+  <span class="key">"allergens"</span>: [<span class="str">"milk"</span>, <span class="str">"soy"</span>],
+  <span class="key">"dietary_tags"</span>: [<span class="str">"high-protein"</span>],
+  <span class="key">"nutri_score"</span>: { <span class="key">"score"</span>: <span class="num">2</span>, <span class="key">"grade"</span>: <span class="str">"B"</span> }
 }</pre>
       </div>
     </div>
@@ -1000,338 +1073,534 @@ const HTML = `<!DOCTYPE html>
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method post">POST</span>
         <span class="endpoint-path">/api/v1/scan/submit</span>
-        <span class="endpoint-desc">Save scanned food entry</span>
+        <span class="endpoint-desc">Save scanned nutrition data as a food entry</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Takes extracted/reviewed nutrition data and saves it as a community food entry. Automatically detects allergens, dietary tags, and calculates Nutri-Score. Rejects duplicate barcodes.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Takes extracted nutrition data (from /scan/label) and saves it as a community food entry in the database. Auto-detects allergens, dietary tags, and calculates nutri-score.</p>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
           <tr><td>name</td><td>string</td><td><span class="required">required</span></td><td>Food name</td></tr>
           <tr><td>brand</td><td>string</td><td><span class="optional">optional</span></td><td>Brand name</td></tr>
-          <tr><td>barcode</td><td>string</td><td><span class="optional">optional</span></td><td>Barcode (UPC/EAN)</td></tr>
-          <tr><td>ingredients_text</td><td>string</td><td><span class="optional">optional</span></td><td>Full ingredients list text</td></tr>
-          <tr><td>nutrition</td><td>object</td><td><span class="required">required</span></td><td>Nutrition object with at least calories. Fields: calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbohydrates, dietary_fiber, total_sugars, protein, vitamin_d, calcium, iron, potassium, serving_size, serving_unit</td></tr>
+          <tr><td>barcode</td><td>string</td><td><span class="optional">optional</span></td><td>Barcode (must be unique)</td></tr>
+          <tr><td>nutrition</td><td>object</td><td><span class="required">required</span></td><td>Nutrition object with calories (required), plus total_fat, protein, etc.</td></tr>
+          <tr><td>ingredients_text</td><td>string</td><td><span class="optional">optional</span></td><td>Ingredients list for allergen/tag detection</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"id"</span>: <span class="str">"new-food-uuid"</span>,
-  <span class="key">"name"</span>: <span class="str">"Granola Bar"</span>,
+  <span class="key">"id"</span>: <span class="str">"a1b2c3..."</span>,
+  <span class="key">"name"</span>: <span class="str">"Protein Bar"</span>,
   <span class="key">"source"</span>: <span class="str">"community"</span>,
-  <span class="key">"calories"</span>: <span class="num">190</span>,
-  <span class="key">"allergens"</span>: [<span class="str">"gluten"</span>, <span class="str">"nuts"</span>],
-  <span class="key">"dietary_tags"</span>: [<span class="str">"vegetarian"</span>],
-  <span class="key">"nutri_score"</span>: { <span class="key">"score"</span>: <span class="num">5</span>, <span class="key">"grade"</span>: <span class="str">"C"</span> },
-  <span class="key">"message"</span>: <span class="str">"Food entry created successfully from scanned label."</span>
+  <span class="key">"calories"</span>: <span class="num">210</span>,
+  <span class="key">"allergens"</span>: [<span class="str">"milk"</span>],
+  <span class="key">"nutri_score"</span>: { <span class="key">"score"</span>: <span class="num">2</span>, <span class="key">"grade"</span>: <span class="str">"B"</span> }
 }</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Request Body (JSON)</label>
-            <textarea class="try-input" data-body>{
-  "name": "Example Food",
-  "brand": "Brand",
-  "nutrition": {
-    "calories": 200,
-    "protein": 10,
-    "total_fat": 8,
-    "total_carbohydrates": 25
-  }
-}</textarea>
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/scan/submit', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- ==================== VENDORS ==================== -->
-  <div class="section" data-group="vendors">
-    <div class="section-title">Vendor Endpoints <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+  <!-- ==================== PHOTO ==================== -->
+  <div class="section" data-group="photo">
+    <div class="section-title">Photo Recognition <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
 
-    <!-- GET /api/v1/vendors -->
-    <div class="endpoint" data-group="vendors">
-      <div class="endpoint-header" onclick="toggleEndpoint(this)">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/api/v1/vendors</span>
-        <span class="endpoint-desc">List vendors</span>
-        <span class="endpoint-chevron">&#9654;</span>
-      </div>
-      <div class="endpoint-body">
-        <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns a paginated list of registered vendors (restaurants, food trucks, etc.). Optionally filter by city or state.</p>
-
-        <div class="detail-label">Query Parameters</div>
-        <table class="param-table">
-          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>city</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by city name (partial match)</td></tr>
-          <tr><td>state</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by state (exact, e.g. "CA")</td></tr>
-          <tr><td>limit</td><td>integer</td><td><span class="optional">optional</span></td><td>Results per page (default 25, max 100)</td></tr>
-          <tr><td>offset</td><td>integer</td><td><span class="optional">optional</span></td><td>Pagination offset (default 0)</td></tr>
-        </table>
-
-        <div class="detail-label">Example Response</div>
-        <pre>{
-  <span class="key">"vendors"</span>: [
-    {
-      <span class="key">"id"</span>: <span class="str">"abc-123"</span>,
-      <span class="key">"name"</span>: <span class="str">"Fresh Bowl Co."</span>,
-      <span class="key">"type"</span>: <span class="str">"restaurant"</span>,
-      <span class="key">"city"</span>: <span class="str">"Austin"</span>,
-      <span class="key">"state"</span>: <span class="str">"TX"</span>
-    }
-  ],
-  <span class="key">"total"</span>: <span class="num">12</span>,
-  <span class="key">"limit"</span>: <span class="num">25</span>,
-  <span class="key">"offset"</span>: <span class="num">0</span>
-}</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Filters</label>
-            <input class="try-input" data-param="city" placeholder="city" style="max-width:150px" />
-            <input class="try-input" data-param="state" placeholder="state (e.g. CA)" style="max-width:120px" />
-            <input class="try-input" data-param="limit" placeholder="limit" style="max-width:80px" />
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/vendors', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- POST /api/v1/vendors/register -->
-    <div class="endpoint" data-group="vendors">
+    <!-- POST /api/v1/photo/analyze -->
+    <div class="endpoint" data-group="photo">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method post">POST</span>
-        <span class="endpoint-path">/api/v1/vendors/register</span>
-        <span class="endpoint-desc">Register a new vendor</span>
+        <span class="endpoint-path">/api/v1/photo/analyze</span>
+        <span class="endpoint-desc">Analyze a food photo for nutrition</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Register a new vendor (restaurant, food truck, etc.) and receive a vendor-specific API key for submitting menu items.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Uses Gemini AI to identify all food items in a photo, estimate portions, and return matched nutrition data with confidence scores. Returns an analysis_id for feedback.</p>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>name</td><td>string</td><td><span class="required">required</span></td><td>Vendor name</td></tr>
-          <tr><td>type</td><td>string</td><td><span class="required">required</span></td><td>One of: restaurant, food_truck, farmers_market, independent</td></tr>
-          <tr><td>address</td><td>string</td><td><span class="optional">optional</span></td><td>Street address</td></tr>
-          <tr><td>city</td><td>string</td><td><span class="optional">optional</span></td><td>City</td></tr>
-          <tr><td>state</td><td>string</td><td><span class="optional">optional</span></td><td>State code (e.g. "CA")</td></tr>
-          <tr><td>zip</td><td>string</td><td><span class="optional">optional</span></td><td>ZIP code</td></tr>
-          <tr><td>lat</td><td>number</td><td><span class="optional">optional</span></td><td>Latitude</td></tr>
-          <tr><td>lng</td><td>number</td><td><span class="optional">optional</span></td><td>Longitude</td></tr>
+          <tr><td>image</td><td>string</td><td><span class="required">required</span></td><td>Base64-encoded food photo</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"id"</span>: <span class="str">"abc-123-def-456"</span>,
-  <span class="key">"name"</span>: <span class="str">"Fresh Bowl Co."</span>,
-  <span class="key">"type"</span>: <span class="str">"restaurant"</span>,
-  <span class="key">"apiKey"</span>: <span class="str">"cult_v1b2c3d4..."</span>,
-  <span class="key">"message"</span>: <span class="str">"Vendor registered. Use your API key to submit menu items."</span>
+  <span class="key">"analysis_id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"items"</span>: [
+    {
+      <span class="key">"name"</span>: <span class="str">"grilled chicken breast"</span>,
+      <span class="key">"portion_grams"</span>: <span class="num">170</span>,
+      <span class="key">"confidence"</span>: <span class="num">0.85</span>,
+      <span class="key">"match"</span>: { <span class="key">"id"</span>: <span class="str">"usda-..."</span>, <span class="key">"name"</span>: <span class="str">"Chicken breast"</span> },
+      <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">281</span>, <span class="key">"protein"</span>: <span class="num">53</span> }
+    }
+  ],
+  <span class="key">"total"</span>: { <span class="key">"calories"</span>: <span class="num">450</span>, <span class="key">"protein"</span>: <span class="num">60</span> },
+  <span class="key">"overall_culture_score"</span>: <span class="num">78</span>
+}</pre>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/photo/log -->
+    <div class="endpoint" data-group="photo">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/photo/log</span>
+        <span class="endpoint-desc">Analyze and log a food photo</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Combines photo analysis with automatic food logging. Identifies food items, calculates nutrition, and saves matched items as meal entries.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>image</td><td>string</td><td><span class="required">required</span></td><td>Base64-encoded food photo</td></tr>
+          <tr><td>meal_type</td><td>string</td><td><span class="optional">optional</span></td><td>One of: breakfast, lunch, dinner, snack</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"analysis_id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"items"</span>: [<span class="str">...</span>],
+  <span class="key">"total"</span>: { <span class="key">"calories"</span>: <span class="num">450</span> },
+  <span class="key">"meal_type"</span>: <span class="str">"lunch"</span>,
+  <span class="key">"logged"</span>: <span class="num">true</span>,
+  <span class="key">"saved_entries"</span>: <span class="num">3</span>
+}</pre>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/photo/quick -->
+    <div class="endpoint" data-group="photo">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/photo/quick</span>
+        <span class="endpoint-desc">Quick photo analysis (calories + macros only)</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Streamlined photo analysis that returns only calories, macros, item names, and Culture Score. Ideal for quick logging UIs.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>image</td><td>string</td><td><span class="required">required</span></td><td>Base64-encoded food photo</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"calories"</span>: <span class="num">450</span>,
+  <span class="key">"protein"</span>: <span class="num">35</span>,
+  <span class="key">"carbs"</span>: <span class="num">40</span>,
+  <span class="key">"fat"</span>: <span class="num">18</span>,
+  <span class="key">"items"</span>: [<span class="str">"grilled chicken breast (170g)"</span>, <span class="str">"brown rice (150g)"</span>],
+  <span class="key">"culture_score"</span>: <span class="num">78</span>
+}</pre>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/photo/feedback -->
+    <div class="endpoint" data-group="photo">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/photo/feedback</span>
+        <span class="endpoint-desc">Submit corrections for photo analysis</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Submit corrections for a previous photo analysis to improve future accuracy. Reference items by their index in the analysis result.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>analysis_id</td><td>string</td><td><span class="required">required</span></td><td>The analysis_id from a previous /photo/analyze or /photo/log response</td></tr>
+          <tr><td>corrections</td><td>array</td><td><span class="required">required</span></td><td>Array of correction objects</td></tr>
+          <tr><td>corrections[].item_index</td><td>integer</td><td><span class="required">required</span></td><td>Index of the item to correct</td></tr>
+          <tr><td>corrections[].correct_name</td><td>string</td><td><span class="optional">optional</span></td><td>Corrected food name</td></tr>
+          <tr><td>corrections[].correct_grams</td><td>number</td><td><span class="optional">optional</span></td><td>Corrected portion in grams</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"message"</span>: <span class="str">"Feedback recorded. Thank you for helping improve photo analysis accuracy."</span>,
+  <span class="key">"analysis_id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"corrections_saved"</span>: <span class="num">1</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== RECIPE ==================== -->
+  <div class="section" data-group="recipe">
+    <div class="section-title">Recipe Parsing <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- POST /api/v1/recipe/parse -->
+    <div class="endpoint" data-group="recipe">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/recipe/parse</span>
+        <span class="endpoint-desc">Parse recipe from URL</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Fetches a recipe URL (supports blogs, TikTok, Instagram, YouTube), extracts ingredients via Gemini AI, matches them to the food database, and calculates per-serving and total nutrition with Culture Score.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>url</td><td>string</td><td><span class="required">required</span></td><td>Recipe URL (any food blog, social media, etc.)</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"title"</span>: <span class="str">"Chicken Stir Fry"</span>,
+  <span class="key">"source_url"</span>: <span class="str">"https://example.com/recipe/..."</span>,
+  <span class="key">"servings"</span>: <span class="num">4</span>,
+  <span class="key">"ingredients"</span>: [
+    {
+      <span class="key">"original"</span>: <span class="str">"2 chicken breast"</span>,
+      <span class="key">"matched"</span>: { <span class="key">"id"</span>: <span class="str">"usda-..."</span>, <span class="key">"name"</span>: <span class="str">"Chicken breast"</span> },
+      <span class="key">"grams"</span>: <span class="num">348</span>,
+      <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">575</span> }
+    }
+  ],
+  <span class="key">"per_serving"</span>: { <span class="key">"calories"</span>: <span class="num">320</span>, <span class="key">"protein"</span>: <span class="num">35</span> },
+  <span class="key">"total_nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">1280</span> },
+  <span class="key">"culture_score"</span>: <span class="num">72</span>
 }</pre>
 
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
             <label>Request Body (JSON)</label>
-            <textarea class="try-input" data-body>{
-  "name": "Fresh Bowl Co.",
-  "type": "restaurant",
-  "city": "Austin",
-  "state": "TX"
-}</textarea>
+            <textarea class="try-input" data-body>{ "url": "https://allrecipes.com/recipe/228285/" }</textarea>
           </div>
-          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/vendors/register', true)">Send Request</button>
+          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/recipe/parse', true)">Send Request</button>
           <div class="try-result"></div>
         </div>
       </div>
     </div>
 
-    <!-- GET /api/v1/vendors/:id -->
-    <div class="endpoint" data-group="vendors">
-      <div class="endpoint-header" onclick="toggleEndpoint(this)">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/api/v1/vendors/:id</span>
-        <span class="endpoint-desc">Get vendor details</span>
-        <span class="endpoint-chevron">&#9654;</span>
-      </div>
-      <div class="endpoint-body">
-        <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns details for a single vendor by ID including name, type, address, and coordinates.</p>
-
-        <div class="detail-label">Path Parameters</div>
-        <table class="param-table">
-          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Vendor UUID</td></tr>
-        </table>
-
-        <div class="detail-label">Example Response</div>
-        <pre>{
-  <span class="key">"id"</span>: <span class="str">"abc-123-def-456"</span>,
-  <span class="key">"name"</span>: <span class="str">"Fresh Bowl Co."</span>,
-  <span class="key">"type"</span>: <span class="str">"restaurant"</span>,
-  <span class="key">"city"</span>: <span class="str">"Austin"</span>,
-  <span class="key">"state"</span>: <span class="str">"TX"</span>,
-  <span class="key">"lat"</span>: <span class="num">30.267</span>,
-  <span class="key">"lng"</span>: <span class="num">-97.743</span>,
-  <span class="key">"created_at"</span>: <span class="str">"2026-03-20T12:00:00Z"</span>
-}</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Vendor ID</label>
-            <input class="try-input" data-path="id" placeholder="vendor-uuid" />
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/vendors/:id', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- GET /api/v1/vendors/:id/foods -->
-    <div class="endpoint" data-group="vendors">
-      <div class="endpoint-header" onclick="toggleEndpoint(this)">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/api/v1/vendors/:id/foods</span>
-        <span class="endpoint-desc">Get vendor's menu items</span>
-        <span class="endpoint-chevron">&#9654;</span>
-      </div>
-      <div class="endpoint-body">
-        <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns all food items submitted by this vendor.</p>
-
-        <div class="detail-label">Path Parameters</div>
-        <table class="param-table">
-          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Vendor UUID</td></tr>
-        </table>
-
-        <div class="detail-label">Example Response</div>
-        <pre>{
-  <span class="key">"vendor"</span>: <span class="str">"Fresh Bowl Co."</span>,
-  <span class="key">"foods"</span>: [
-    {
-      <span class="key">"id"</span>: <span class="str">"food-uuid-123"</span>,
-      <span class="key">"name"</span>: <span class="str">"Grilled Chicken Bowl"</span>,
-      <span class="key">"category"</span>: <span class="str">"Entrees"</span>
-    }
-  ]
-}</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Vendor ID</label>
-            <input class="try-input" data-path="id" placeholder="vendor-uuid" />
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/vendors/:id/foods', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- POST /api/v1/vendors/:id/foods -->
-    <div class="endpoint" data-group="vendors">
+    <!-- POST /api/v1/recipe/text -->
+    <div class="endpoint" data-group="recipe">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method post">POST</span>
-        <span class="endpoint-path">/api/v1/vendors/:id/foods</span>
-        <span class="endpoint-desc">Submit a recipe / menu item</span>
+        <span class="endpoint-path">/api/v1/recipe/text</span>
+        <span class="endpoint-desc">Parse recipe from plain text</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Submit a menu item as a recipe composed of USDA-verified ingredients. Nutrition is automatically calculated from the ingredient quantities. Nutri-Score is computed per 100g. Requires the vendor's own API key.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Parses a recipe from plain text input. Extracts ingredients, matches them to the database, and returns per-serving and total nutrition.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>text</td><td>string</td><td><span class="required">required</span></td><td>Recipe text (max 10000 chars)</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"title"</span>: <span class="str">"Chicken and Rice"</span>,
+  <span class="key">"servings"</span>: <span class="num">4</span>,
+  <span class="key">"ingredients"</span>: [<span class="str">...</span>],
+  <span class="key">"per_serving"</span>: { <span class="key">"calories"</span>: <span class="num">350</span> },
+  <span class="key">"total_nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">1400</span> },
+  <span class="key">"culture_score"</span>: <span class="num">68</span>
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <label>Request Body (JSON)</label>
+            <textarea class="try-input" data-body>{ "text": "2 chicken breasts\\n1 cup rice\\n2 tbsp soy sauce\\nServes 4" }</textarea>
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/recipe/text', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/recipe/save -->
+    <div class="endpoint" data-group="recipe">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/recipe/save</span>
+        <span class="endpoint-desc">Save a parsed recipe as a food</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Saves a parsed recipe (from /recipe/parse or /recipe/text) as a new food entry in the database. Stores per-serving nutrition, ingredient linkages, and calculates nutri-score.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>title</td><td>string</td><td><span class="optional">optional</span></td><td>Recipe title (or use "name")</td></tr>
+          <tr><td>name</td><td>string</td><td><span class="optional">optional</span></td><td>Overrides title for the saved food name</td></tr>
+          <tr><td>servings</td><td>number</td><td><span class="optional">optional</span></td><td>Number of servings (default 1)</td></tr>
+          <tr><td>ingredients</td><td>array</td><td><span class="required">required</span></td><td>Ingredients array from the parse response</td></tr>
+          <tr><td>per_serving</td><td>object</td><td><span class="required">required</span></td><td>Per-serving nutrition from the parse response</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"name"</span>: <span class="str">"Chicken Stir Fry"</span>,
+  <span class="key">"servings"</span>: <span class="num">4</span>,
+  <span class="key">"serving_size"</span>: <span class="num">250</span>,
+  <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">320</span>, <span class="key">"protein"</span>: <span class="num">35</span> },
+  <span class="key">"nutri_score"</span>: <span class="num">1</span>,
+  <span class="key">"nutri_grade"</span>: <span class="str">"B"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== ORDER ==================== -->
+  <div class="section" data-group="order">
+    <div class="section-title">Order Scanning <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- POST /api/v1/order/scan -->
+    <div class="endpoint" data-group="order">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/order/scan</span>
+        <span class="endpoint-desc">Scan a food delivery order screenshot</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Analyzes a food delivery or restaurant order screenshot (DoorDash, Uber Eats, etc.), extracts items with quantities/sizes/prices, matches them to the food database, and returns nutrition totals. Customizations (e.g. "no pickles", "extra cheese") are auto-applied.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>image</td><td>string</td><td><span class="required">required</span></td><td>Base64-encoded screenshot of the order</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"order_id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"restaurant"</span>: <span class="str">"McDonald's"</span>,
+  <span class="key">"platform"</span>: <span class="str">"DoorDash"</span>,
+  <span class="key">"items"</span>: [
+    {
+      <span class="key">"original_name"</span>: <span class="str">"Big Mac"</span>,
+      <span class="key">"quantity"</span>: <span class="num">1</span>,
+      <span class="key">"match"</span>: { <span class="key">"id"</span>: <span class="str">"..."</span>, <span class="key">"name"</span>: <span class="str">"Big Mac"</span> },
+      <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">550</span> }
+    }
+  ],
+  <span class="key">"total_nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">1200</span> },
+  <span class="key">"total_price"</span>: <span class="num">15.47</span>,
+  <span class="key">"item_count"</span>: <span class="num">3</span>
+}</pre>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/order/calculate -->
+    <div class="endpoint" data-group="order">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/order/calculate</span>
+        <span class="endpoint-desc">Recalculate nutrition for selected items</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Recalculates nutrition totals for a previously scanned order, allowing item selection, quantity changes, and split calculations (for sharing meals). Order scans expire after 24 hours.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>order_id</td><td>string</td><td><span class="required">required</span></td><td>Order ID from /order/scan response</td></tr>
+          <tr><td>items</td><td>array</td><td><span class="required">required</span></td><td>Array of selection objects</td></tr>
+          <tr><td>items[].index</td><td>integer</td><td><span class="required">required</span></td><td>Item index from the scan</td></tr>
+          <tr><td>items[].selected</td><td>boolean</td><td><span class="optional">optional</span></td><td>Include this item (default true)</td></tr>
+          <tr><td>items[].quantity</td><td>integer</td><td><span class="optional">optional</span></td><td>Override quantity</td></tr>
+          <tr><td>items[].split</td><td>integer</td><td><span class="optional">optional</span></td><td>Split between N people (divides nutrition)</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"order_id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"restaurant"</span>: <span class="str">"McDonald's"</span>,
+  <span class="key">"items"</span>: [<span class="str">...</span>],
+  <span class="key">"total_nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">550</span> },
+  <span class="key">"total_price"</span>: <span class="num">5.99</span>,
+  <span class="key">"item_count"</span>: <span class="num">1</span>
+}</pre>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/order/log -->
+    <div class="endpoint" data-group="order">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/order/log</span>
+        <span class="endpoint-desc">Log selected order items as meal entries</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Saves selected items from a scanned order as meal entries. Supports item selection, quantity overrides, split calculations, and meal type tagging.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>order_id</td><td>string</td><td><span class="required">required</span></td><td>Order ID from /order/scan response</td></tr>
+          <tr><td>items</td><td>array</td><td><span class="required">required</span></td><td>Selection objects (same format as /calculate)</td></tr>
+          <tr><td>meal_type</td><td>string</td><td><span class="optional">optional</span></td><td>One of: breakfast, lunch, dinner, snack</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"order_id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"restaurant"</span>: <span class="str">"McDonald's"</span>,
+  <span class="key">"meal_type"</span>: <span class="str">"lunch"</span>,
+  <span class="key">"logged"</span>: <span class="num">true</span>,
+  <span class="key">"saved_entries"</span>: <span class="num">2</span>,
+  <span class="key">"entry_ids"</span>: [<span class="str">"..."</span>, <span class="str">"..."</span>]
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CUSTOMIZE ==================== -->
+  <div class="section" data-group="customize">
+    <div class="section-title">Menu Customization <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- POST /api/v1/foods/:id/customize -->
+    <div class="endpoint" data-group="customize">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/foods/:id/customize</span>
+        <span class="endpoint-desc">Preview customized nutrition</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Customizes a food item by adding, removing, or swapping ingredients and returns the adjusted nutrition. Supports portion sizes (light, standard, extra, double). Resolves ingredients from chain meal components, a built-in reference table, or the foods database.</p>
 
         <div class="detail-label">Path Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Vendor UUID (must match your vendor API key)</td></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Food ID to customize</td></tr>
         </table>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>name</td><td>string</td><td><span class="required">required</span></td><td>Menu item name</td></tr>
-          <tr><td>category</td><td>string</td><td><span class="optional">optional</span></td><td>Category (default: "Uncategorized")</td></tr>
-          <tr><td>servingSize</td><td>number</td><td><span class="optional">optional</span></td><td>Serving size (default: 100)</td></tr>
-          <tr><td>servingUnit</td><td>string</td><td><span class="optional">optional</span></td><td>Serving unit (default: "g")</td></tr>
-          <tr><td>ingredients</td><td>array</td><td><span class="required">required</span></td><td>Array of { foodId: string, grams: number }</td></tr>
+          <tr><td>add</td><td>array</td><td><span class="optional">optional</span></td><td>Items to add: [{ name: "guacamole", portion: "standard" }]</td></tr>
+          <tr><td>remove</td><td>array</td><td><span class="optional">optional</span></td><td>Items to remove: ["cheese", "sour cream"]</td></tr>
+          <tr><td>swap</td><td>array</td><td><span class="optional">optional</span></td><td>Ingredient swaps: [{ from: "beef", to: "chicken" }]</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"original"</span>: {
+    <span class="key">"name"</span>: <span class="str">"Burrito Bowl"</span>,
+    <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">650</span> },
+    <span class="key">"cultureScore"</span>: <span class="num">62</span>
+  },
+  <span class="key">"customized"</span>: {
+    <span class="key">"name"</span>: <span class="str">"Burrito Bowl + guacamole - sour cream"</span>,
+    <span class="key">"modifications"</span>: [
+      { <span class="key">"action"</span>: <span class="str">"add"</span>, <span class="key">"item"</span>: <span class="str">"guacamole"</span>, <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">50</span> } },
+      { <span class="key">"action"</span>: <span class="str">"remove"</span>, <span class="key">"item"</span>: <span class="str">"sour cream"</span>, <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">-60</span> } }
+    ],
+    <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">640</span> },
+    <span class="key">"cultureScore"</span>: <span class="num">63</span>
+  },
+  <span class="key">"difference"</span>: { <span class="key">"calories"</span>: <span class="str">"-10"</span> }
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <label>Food ID</label>
+            <input class="try-input" data-path="id" placeholder="food-id" />
+          </div>
+          <div class="try-input-group">
+            <label>Request Body (JSON)</label>
+            <textarea class="try-input" data-body>{ "add": [{ "name": "guacamole", "portion": "standard" }], "remove": ["sour cream"] }</textarea>
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/foods/:id/customize', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/foods/:id/customize/save -->
+    <div class="endpoint" data-group="customize">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/foods/:id/customize/save</span>
+        <span class="endpoint-desc">Save customized food to database</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Applies customizations and saves the result as a new community food entry in the database. Returns the new food ID along with original vs customized nutrition comparison.</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Base food ID to customize</td></tr>
+        </table>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>add</td><td>array</td><td><span class="optional">optional</span></td><td>Items to add (same format as /customize)</td></tr>
+          <tr><td>remove</td><td>array</td><td><span class="optional">optional</span></td><td>Items to remove</td></tr>
+          <tr><td>swap</td><td>array</td><td><span class="optional">optional</span></td><td>Ingredient swaps</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
   <span class="key">"id"</span>: <span class="str">"new-food-uuid"</span>,
-  <span class="key">"name"</span>: <span class="str">"Grilled Chicken Bowl"</span>,
-  <span class="key">"source"</span>: <span class="str">"vendor"</span>,
-  <span class="key">"vendorId"</span>: <span class="str">"vendor-uuid"</span>,
-  <span class="key">"nutriScore"</span>: <span class="num">-2</span>,
-  <span class="key">"nutriGrade"</span>: <span class="str">"A"</span>,
-  <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">412.5</span>, <span class="key">"protein"</span>: <span class="num">38.2</span> },
-  <span class="key">"ingredientCount"</span>: <span class="num">2</span>,
-  <span class="key">"message"</span>: <span class="str">"Food created. Nutrition calculated from USDA-verified ingredient data."</span>
+  <span class="key">"original"</span>: { <span class="key">"name"</span>: <span class="str">"Burrito Bowl"</span> },
+  <span class="key">"customized"</span>: {
+    <span class="key">"name"</span>: <span class="str">"Burrito Bowl + guacamole"</span>,
+    <span class="key">"nutriScore"</span>: <span class="num">3</span>,
+    <span class="key">"nutriGrade"</span>: <span class="str">"B"</span>
+  },
+  <span class="key">"message"</span>: <span class="str">"Customized food saved to database"</span>
 }</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Vendor ID (path)</label>
-            <input class="try-input" data-path="id" placeholder="vendor-uuid" />
-          </div>
-          <div class="try-input-group">
-            <label>Request Body (JSON)</label>
-            <textarea class="try-input" data-body>{
-  "name": "Grilled Chicken Bowl",
-  "category": "Entrees",
-  "servingSize": 350,
-  "servingUnit": "g",
-  "ingredients": [
-    { "foodId": "usda-171077", "grams": 200 },
-    { "foodId": "usda-168875", "grams": 100 }
-  ]
-}</textarea>
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/vendors/:id/foods', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
       </div>
     </div>
   </div>
 
   <!-- ==================== MEALS ==================== -->
   <div class="section" data-group="meals">
-    <div class="section-title">Meal Builder Endpoints <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+    <div class="section-title">Meal Builder <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
 
     <!-- GET /api/v1/meals/chains -->
     <div class="endpoint" data-group="meals">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method get">GET</span>
         <span class="endpoint-path">/api/v1/meals/chains</span>
-        <span class="endpoint-desc">List chains with component data</span>
+        <span class="endpoint-desc">List restaurant chains</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns all restaurant chains that have meal component data available for building custom meals.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Returns all restaurant chains that have component data for custom meal building.</p>
 
         <div class="detail-label">Example Response</div>
         <pre>{
   <span class="key">"chains"</span>: [
-    {
-      <span class="key">"name"</span>: <span class="str">"Chipotle"</span>,
-      <span class="key">"componentCount"</span>: <span class="num">45</span>,
-      <span class="key">"categoryCount"</span>: <span class="num">6</span>
-    }
+    { <span class="key">"name"</span>: <span class="str">"Chipotle"</span>, <span class="key">"componentCount"</span>: <span class="num">45</span>, <span class="key">"categoryCount"</span>: <span class="num">8</span> },
+    { <span class="key">"name"</span>: <span class="str">"Subway"</span>, <span class="key">"componentCount"</span>: <span class="num">38</span>, <span class="key">"categoryCount"</span>: <span class="num">6</span> }
   ]
 }</pre>
 
@@ -1348,12 +1617,12 @@ const HTML = `<!DOCTYPE html>
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method get">GET</span>
         <span class="endpoint-path">/api/v1/meals/components</span>
-        <span class="endpoint-desc">Get chain components by category</span>
+        <span class="endpoint-desc">Get components for a chain</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns all available components for a chain, grouped by category (e.g. Protein, Rice, Toppings). Each component includes nutrition per portion type (standard, light, double, etc.) with allergen and dietary tag info.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Returns all available components for a restaurant chain, grouped by category (e.g. "Protein", "Rice", "Toppings"). Each component includes portion variants with full nutrition, allergens, and dietary tags.</p>
 
         <div class="detail-label">Query Parameters</div>
         <table class="param-table">
@@ -1369,13 +1638,7 @@ const HTML = `<!DOCTYPE html>
       {
         <span class="key">"name"</span>: <span class="str">"Chicken"</span>,
         <span class="key">"portions"</span>: {
-          <span class="key">"standard"</span>: {
-            <span class="key">"portionGrams"</span>: <span class="num">113</span>,
-            <span class="key">"calories"</span>: <span class="num">180</span>,
-            <span class="key">"protein"</span>: <span class="num">32</span>,
-            <span class="key">"allergens"</span>: [],
-            <span class="key">"dietaryTags"</span>: [<span class="str">"gluten-free"</span>]
-          }
+          <span class="key">"standard"</span>: { <span class="key">"portionGrams"</span>: <span class="num">113</span>, <span class="key">"calories"</span>: <span class="num">180</span>, <span class="key">"protein"</span>: <span class="num">32</span> }
         }
       }
     ]
@@ -1399,53 +1662,36 @@ const HTML = `<!DOCTYPE html>
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method post">POST</span>
         <span class="endpoint-path">/api/v1/meals/build</span>
-        <span class="endpoint-desc">Build a custom meal</span>
+        <span class="endpoint-desc">Build a custom meal and get nutrition</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Build a custom meal from chain components and get combined nutrition totals with Nutri-Score, allergen summary, and per-component breakdown. Does not save the meal.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Builds a custom meal from chain components and calculates combined nutrition totals, nutri-score, and allergens. Preview only - does not save.</p>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
           <tr><td>chain</td><td>string</td><td><span class="required">required</span></td><td>Chain name</td></tr>
           <tr><td>name</td><td>string</td><td><span class="optional">optional</span></td><td>Custom meal name</td></tr>
-          <tr><td>components</td><td>array</td><td><span class="required">required</span></td><td>Array of { name: string, portion?: string }. Portion defaults to "standard".</td></tr>
+          <tr><td>components</td><td>array</td><td><span class="required">required</span></td><td>Array of { name, portion } objects</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"meal"</span>: {
-    <span class="key">"name"</span>: <span class="str">"My Chipotle Bowl"</span>,
-    <span class="key">"chain"</span>: <span class="str">"Chipotle"</span>,
-    <span class="key">"componentCount"</span>: <span class="num">4</span>
-  },
-  <span class="key">"totals"</span>: {
-    <span class="key">"calories"</span>: <span class="num">735</span>,
-    <span class="key">"protein"</span>: <span class="num">45.2</span>,
-    <span class="key">"portionGrams"</span>: <span class="num">510</span>
-  },
+  <span class="key">"meal"</span>: { <span class="key">"name"</span>: <span class="str">"My Chipotle Bowl"</span>, <span class="key">"chain"</span>: <span class="str">"Chipotle"</span> },
+  <span class="key">"totals"</span>: { <span class="key">"calories"</span>: <span class="num">685</span>, <span class="key">"protein"</span>: <span class="num">45</span> },
   <span class="key">"nutriScore"</span>: <span class="num">3</span>,
   <span class="key">"nutriGrade"</span>: <span class="str">"B"</span>,
-  <span class="key">"allergens"</span>: [<span class="str">"dairy"</span>],
-  <span class="key">"breakdown"</span>: [...]
+  <span class="key">"allergens"</span>: [<span class="str">"milk"</span>],
+  <span class="key">"breakdown"</span>: [<span class="str">...</span>]
 }</pre>
 
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
             <label>Request Body (JSON)</label>
-            <textarea class="try-input" data-body>{
-  "chain": "Chipotle",
-  "name": "My Chipotle Bowl",
-  "components": [
-    { "name": "Chicken" },
-    { "name": "White Rice" },
-    { "name": "Black Beans" },
-    { "name": "Mild Salsa" }
-  ]
-}</textarea>
+            <textarea class="try-input" data-body>{ "chain": "Chipotle", "name": "My Bowl", "components": [{ "name": "Chicken", "portion": "standard" }, { "name": "White Rice", "portion": "standard" }] }</textarea>
           </div>
           <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/meals/build', true)">Send Request</button>
           <div class="try-result"></div>
@@ -1458,59 +1704,506 @@ const HTML = `<!DOCTYPE html>
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method post">POST</span>
         <span class="endpoint-path">/api/v1/meals/save</span>
-        <span class="endpoint-desc">Build and save a custom meal</span>
+        <span class="endpoint-desc">Save a custom meal to the database</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Like /meals/build, but also saves the combined meal as a new food entry in the database. The meal becomes searchable and retrievable by ID.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Builds a custom meal from chain components and saves it as a new food entry in the database. Returns the new food ID with full nutrition, nutri-score, allergens, and dietary tags.</p>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
           <tr><td>chain</td><td>string</td><td><span class="required">required</span></td><td>Chain name</td></tr>
-          <tr><td>name</td><td>string</td><td><span class="required">required</span></td><td>Meal name (required for saving)</td></tr>
-          <tr><td>components</td><td>array</td><td><span class="required">required</span></td><td>Array of { name: string, portion?: string }</td></tr>
+          <tr><td>name</td><td>string</td><td><span class="required">required</span></td><td>Meal name (required when saving)</td></tr>
+          <tr><td>components</td><td>array</td><td><span class="required">required</span></td><td>Array of { name, portion } objects</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"id"</span>: <span class="str">"new-food-uuid"</span>,
+  <span class="key">"id"</span>: <span class="str">"uuid-here"</span>,
   <span class="key">"name"</span>: <span class="str">"My Chipotle Bowl"</span>,
   <span class="key">"chain"</span>: <span class="str">"Chipotle"</span>,
-  <span class="key">"components"</span>: [<span class="str">"Chicken (standard)"</span>, <span class="str">"White Rice (standard)"</span>],
-  <span class="key">"servingSize"</span>: <span class="num">510</span>,
-  <span class="key">"servingUnit"</span>: <span class="str">"g"</span>,
-  <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">735</span>, <span class="key">"protein"</span>: <span class="num">45.2</span> },
+  <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">685</span>, <span class="key">"protein"</span>: <span class="num">45</span> },
   <span class="key">"nutriScore"</span>: <span class="num">3</span>,
   <span class="key">"nutriGrade"</span>: <span class="str">"B"</span>,
   <span class="key">"message"</span>: <span class="str">"Meal saved to foods database"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SWAPS ==================== -->
+  <div class="section" data-group="swaps">
+    <div class="section-title">Ingredient Swaps <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- POST /api/v1/swap -->
+    <div class="endpoint" data-group="swaps">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/swap</span>
+        <span class="endpoint-desc">Get AI-powered ingredient swap suggestions</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Uses Gemini AI to suggest 3-5 alternative ingredients based on a reason (e.g. dairy_free, low_calorie, keto). Matches suggestions to the food database and computes nutrition differences and compatibility scores. Respects user preferences set via /preferences.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>swap_out</td><td>string</td><td><span class="required">required</span></td><td>Ingredient to replace (e.g. "cheese")</td></tr>
+          <tr><td>reason</td><td>string</td><td><span class="required">required</span></td><td>Reason: dairy_free, low_calorie, keto, high_protein, low_fat, low_sodium, gluten_free, etc.</td></tr>
+          <tr><td>food_id</td><td>string</td><td><span class="optional">one of</span></td><td>Food ID to get ingredient context from</td></tr>
+          <tr><td>ingredients</td><td>array</td><td><span class="optional">one of</span></td><td>Array of ingredient names for context</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"original"</span>: {
+    <span class="key">"name"</span>: <span class="str">"cheese"</span>,
+    <span class="key">"match"</span>: { <span class="key">"id"</span>: <span class="str">"usda-..."</span>, <span class="key">"name"</span>: <span class="str">"Cheddar cheese"</span> },
+    <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">403</span> }
+  },
+  <span class="key">"reason"</span>: <span class="str">"dairy_free"</span>,
+  <span class="key">"suggestions"</span>: [
+    {
+      <span class="key">"name"</span>: <span class="str">"nutritional yeast"</span>,
+      <span class="key">"match"</span>: { <span class="key">"id"</span>: <span class="str">"..."</span> },
+      <span class="key">"reason"</span>: <span class="str">"Cheesy flavor without dairy, high in B vitamins"</span>,
+      <span class="key">"nutrition_change"</span>: { <span class="key">"calories"</span>: <span class="num">-80</span> },
+      <span class="key">"compatibility_score"</span>: <span class="num">0.85</span>
+    }
+  ],
+  <span class="key">"user_preferences_applied"</span>: <span class="num">true</span>
 }</pre>
 
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
             <label>Request Body (JSON)</label>
-            <textarea class="try-input" data-body>{
-  "chain": "Chipotle",
-  "name": "My Chipotle Bowl",
-  "components": [
-    { "name": "Chicken" },
-    { "name": "White Rice" },
-    { "name": "Black Beans" }
-  ]
-}</textarea>
+            <textarea class="try-input" data-body>{ "swap_out": "cheese", "reason": "dairy_free", "ingredients": ["rice", "chicken", "cheese", "beans"] }</textarea>
           </div>
-          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/meals/save', true)">Send Request</button>
+          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/swap', true)">Send Request</button>
           <div class="try-result"></div>
         </div>
       </div>
     </div>
   </div>
 
+  <!-- ==================== ALTERNATIVES ==================== -->
+  <div class="section" data-group="alternatives">
+    <div class="section-title">Healthier Alternatives <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- GET /api/v1/foods/:id/alternatives -->
+    <div class="endpoint" data-group="alternatives">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/foods/:id/alternatives</span>
+        <span class="endpoint-desc">Find healthier alternatives for a food</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Finds healthier alternatives to a specific food in the same or similar categories. Ranks alternatives by a composite score based on nutri-grade improvement and goal-specific metrics. Returns reasons and detailed improvement breakdowns.</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Food ID to find alternatives for</td></tr>
+        </table>
+
+        <div class="detail-label">Query Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>limit</td><td>integer</td><td><span class="optional">optional</span></td><td>Max results (default 10, max 25)</td></tr>
+          <tr><td>goal</td><td>string</td><td><span class="optional">optional</span></td><td>One of: low_calorie, high_protein, low_fat, low_carb, low_sodium</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"original"</span>: { <span class="key">"id"</span>: <span class="str">"..."</span>, <span class="key">"name"</span>: <span class="str">"Cheddar cheese"</span> },
+  <span class="key">"alternatives"</span>: [
+    {
+      <span class="key">"food"</span>: { <span class="key">"id"</span>: <span class="str">"..."</span>, <span class="key">"name"</span>: <span class="str">"Swiss cheese, low fat"</span> },
+      <span class="key">"reason"</span>: <span class="str">"35% fewer calories, similar protein"</span>,
+      <span class="key">"improvements"</span>: { <span class="key">"calories"</span>: { <span class="key">"change"</span>: <span class="str">"-35%"</span> } },
+      <span class="key">"score"</span>: <span class="num">0.82</span>
+    }
+  ],
+  <span class="key">"goal"</span>: <span class="str">"low_calorie"</span>
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <label>Food ID and goal</label>
+            <input class="try-input" data-path="id" placeholder="food-id" />
+            <input class="try-input" data-param="goal" placeholder="goal (optional)" style="max-width:160px" />
+            <input class="try-input" data-param="limit" placeholder="limit (10)" style="max-width:100px" />
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/foods/:id/alternatives', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/alternatives/category/:category -->
+    <div class="endpoint" data-group="alternatives">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/alternatives/category/:category</span>
+        <span class="endpoint-desc">Best foods in a category by goal</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Returns the best foods in a category ranked by a specific nutritional goal (or overall nutri-score if no goal is specified).</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>category</td><td>string</td><td><span class="required">required</span></td><td>Food category (e.g. "Dairy and Egg Products")</td></tr>
+        </table>
+
+        <div class="detail-label">Query Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>limit</td><td>integer</td><td><span class="optional">optional</span></td><td>Max results (default 10, max 50)</td></tr>
+          <tr><td>goal</td><td>string</td><td><span class="optional">optional</span></td><td>One of: low_calorie, high_protein, low_fat, low_carb, low_sodium</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"category"</span>: <span class="str">"Dairy and Egg Products"</span>,
+  <span class="key">"goal"</span>: <span class="str">"high_protein"</span>,
+  <span class="key">"foods"</span>: [
+    { <span class="key">"id"</span>: <span class="str">"..."</span>, <span class="key">"name"</span>: <span class="str">"Greek yogurt, nonfat"</span>, <span class="key">"nutrition"</span>: { <span class="key">"protein"</span>: <span class="num">10</span> } }
+  ],
+  <span class="key">"total"</span>: <span class="num">25</span>
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <label>Category and goal</label>
+            <input class="try-input" data-path="category" placeholder="Dairy and Egg Products" />
+            <input class="try-input" data-param="goal" placeholder="goal (optional)" style="max-width:160px" />
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/alternatives/category/:category', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== HEALTH SCORE ==================== -->
+  <div class="section" data-group="health">
+    <div class="section-title">Health Score <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- GET /api/v1/foods/:id/health-score -->
+    <div class="endpoint" data-group="health">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/foods/:id/health-score</span>
+        <span class="endpoint-desc">Get detailed Culture Score and nutrition analysis</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Returns a comprehensive health analysis including the base Culture Score, a personalized score (if preferences are set), color-coded nutrition facts with %DV ratings, glycemic index/load, and pros/cons. Each nutrient is rated as good, moderate, high, or very_high with an associated color.</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Food ID</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"food"</span>: { <span class="key">"id"</span>: <span class="str">"..."</span>, <span class="key">"name"</span>: <span class="str">"Chicken breast"</span> },
+  <span class="key">"culture_score"</span>: { <span class="key">"score"</span>: <span class="num">82</span>, <span class="key">"label"</span>: <span class="str">"Great"</span>, <span class="key">"color"</span>: <span class="str">"#2ECC71"</span> },
+  <span class="key">"your_score"</span>: {
+    <span class="key">"score"</span>: <span class="num">88</span>,
+    <span class="key">"summary"</span>: <span class="str">"Your score is higher because it matches your high protein goal"</span>
+  },
+  <span class="key">"nutrition_facts"</span>: {
+    <span class="key">"calories"</span>: { <span class="key">"value"</span>: <span class="num">165</span>, <span class="key">"unit"</span>: <span class="str">"kcal"</span> },
+    <span class="key">"protein"</span>: { <span class="key">"value"</span>: <span class="num">31</span>, <span class="key">"rating"</span>: <span class="str">"good"</span>, <span class="key">"color"</span>: <span class="str">"#2ECC71"</span>, <span class="key">"percentDv"</span>: <span class="num">62</span> },
+    <span class="key">"sodium"</span>: { <span class="key">"value"</span>: <span class="num">74</span>, <span class="key">"rating"</span>: <span class="str">"good"</span>, <span class="key">"color"</span>: <span class="str">"#2ECC71"</span>, <span class="key">"percentDv"</span>: <span class="num">3</span> }
+  }
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <label>Food ID</label>
+            <input class="try-input" data-path="id" placeholder="usda-171077" value="usda-171077" />
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/foods/:id/health-score', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== PREFERENCES ==================== -->
+  <div class="section" data-group="preferences">
+    <div class="section-title">User Preferences <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- GET /api/v1/preferences -->
+    <div class="endpoint" data-group="preferences">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/preferences</span>
+        <span class="endpoint-desc">Get current user preferences</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Returns the dietary preferences set for your API key. Preferences affect personalized health scores and ingredient swap suggestions.</p>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"preferences"</span>: {
+    <span class="key">"avoid_ingredients"</span>: [<span class="str">"dairy"</span>, <span class="str">"gluten"</span>],
+    <span class="key">"dietary_goals"</span>: [<span class="str">"high_protein"</span>, <span class="str">"low_carb"</span>],
+    <span class="key">"health_conditions"</span>: [],
+    <span class="key">"calorie_target"</span>: <span class="num">2000</span>,
+    <span class="key">"protein_target"</span>: <span class="num">150</span>
+  }
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/preferences', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PUT /api/v1/preferences -->
+    <div class="endpoint" data-group="preferences">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method put">PUT</span>
+        <span class="endpoint-path">/api/v1/preferences</span>
+        <span class="endpoint-desc">Set or update user preferences</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Creates or updates dietary preferences for your API key. All fields are optional and only provided fields are updated. These preferences personalize health scores and filter out avoided ingredients from swap suggestions.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>avoid_ingredients</td><td>string</td><td><span class="optional">optional</span></td><td>Comma-separated ingredients to avoid (e.g. "dairy,gluten,soy")</td></tr>
+          <tr><td>dietary_goals</td><td>string</td><td><span class="optional">optional</span></td><td>Comma-separated goals (e.g. "high_protein,low_carb")</td></tr>
+          <tr><td>health_conditions</td><td>string</td><td><span class="optional">optional</span></td><td>Comma-separated conditions (e.g. "diabetes,hypertension")</td></tr>
+          <tr><td>calorie_target</td><td>number</td><td><span class="optional">optional</span></td><td>Daily calorie target</td></tr>
+          <tr><td>protein_target</td><td>number</td><td><span class="optional">optional</span></td><td>Daily protein target (grams)</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"message"</span>: <span class="str">"Preferences updated"</span>,
+  <span class="key">"preferences"</span>: {
+    <span class="key">"avoid_ingredients"</span>: [<span class="str">"dairy"</span>],
+    <span class="key">"dietary_goals"</span>: [<span class="str">"high_protein"</span>],
+    <span class="key">"calorie_target"</span>: <span class="num">2000</span>,
+    <span class="key">"protein_target"</span>: <span class="num">150</span>
+  }
+}</pre>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <label>Request Body (JSON)</label>
+            <textarea class="try-input" data-body>{ "avoid_ingredients": "dairy", "dietary_goals": "high_protein", "calorie_target": 2000 }</textarea>
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'PUT', '/api/v1/preferences', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== VENDORS ==================== -->
+  <div class="section" data-group="vendors">
+    <div class="section-title">Vendor Endpoints <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+
+    <!-- GET /api/v1/vendors -->
+    <div class="endpoint" data-group="vendors">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/vendors</span>
+        <span class="endpoint-desc">List vendors</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Returns a paginated list of registered vendors (restaurants, food trucks, farmers markets). Optionally filter by city or state.</p>
+
+        <div class="detail-label">Query Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>limit</td><td>integer</td><td><span class="optional">optional</span></td><td>Results per page (default 25, max 100)</td></tr>
+          <tr><td>offset</td><td>integer</td><td><span class="optional">optional</span></td><td>Pagination offset</td></tr>
+          <tr><td>city</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by city (partial match)</td></tr>
+          <tr><td>state</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by state (exact match)</td></tr>
+        </table>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <input class="try-input" data-param="city" placeholder="city" style="max-width:150px" />
+            <input class="try-input" data-param="state" placeholder="state" style="max-width:80px" />
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/vendors', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/vendors/register -->
+    <div class="endpoint" data-group="vendors">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/vendors/register</span>
+        <span class="endpoint-desc">Register a new vendor</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Registers a new vendor (restaurant, food truck, etc.) and returns a dedicated API key for submitting menu items.</p>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>name</td><td>string</td><td><span class="required">required</span></td><td>Vendor name</td></tr>
+          <tr><td>type</td><td>string</td><td><span class="required">required</span></td><td>One of: restaurant, food_truck, farmers_market, independent</td></tr>
+          <tr><td>address</td><td>string</td><td><span class="optional">optional</span></td><td>Street address</td></tr>
+          <tr><td>city</td><td>string</td><td><span class="optional">optional</span></td><td>City</td></tr>
+          <tr><td>state</td><td>string</td><td><span class="optional">optional</span></td><td>State</td></tr>
+          <tr><td>zip</td><td>string</td><td><span class="optional">optional</span></td><td>ZIP code</td></tr>
+          <tr><td>lat</td><td>number</td><td><span class="optional">optional</span></td><td>Latitude</td></tr>
+          <tr><td>lng</td><td>number</td><td><span class="optional">optional</span></td><td>Longitude</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"name"</span>: <span class="str">"Fresh Bowl Co"</span>,
+  <span class="key">"type"</span>: <span class="str">"restaurant"</span>,
+  <span class="key">"apiKey"</span>: <span class="str">"cult_..."</span>,
+  <span class="key">"message"</span>: <span class="str">"Vendor registered. Use your API key to submit menu items."</span>
+}</pre>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/vendors/:id -->
+    <div class="endpoint" data-group="vendors">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/vendors/:id</span>
+        <span class="endpoint-desc">Get vendor details</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Returns details for a specific vendor including name, type, address, and coordinates.</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Vendor ID</td></tr>
+        </table>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <input class="try-input" data-path="id" placeholder="vendor-id" />
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/vendors/:id', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/vendors/:id/foods -->
+    <div class="endpoint" data-group="vendors">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/vendors/:id/foods</span>
+        <span class="endpoint-desc">Get vendor's menu items</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Returns all food items submitted by a specific vendor.</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Vendor ID</td></tr>
+        </table>
+
+        <div class="try-it">
+          <div class="try-it-title">&#9889; Try it</div>
+          <div class="try-input-group">
+            <input class="try-input" data-path="id" placeholder="vendor-id" />
+          </div>
+          <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/vendors/:id/foods', true)">Send Request</button>
+          <div class="try-result"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- POST /api/v1/vendors/:id/foods -->
+    <div class="endpoint" data-group="vendors">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/vendors/:id/foods</span>
+        <span class="endpoint-desc">Submit a menu item (recipe-based)</span>
+        <span class="endpoint-chevron">&#9654;</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="detail-label">Description</div>
+        <p style="font-size:14px;color:var(--text-muted)">Submits a new menu item by specifying its ingredients (as food IDs and grams). Nutrition is auto-calculated from USDA-verified ingredient data. Requires the vendor's own API key.</p>
+
+        <div class="detail-label">Path Parameters</div>
+        <table class="param-table">
+          <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Vendor ID</td></tr>
+        </table>
+
+        <div class="detail-label">Request Body</div>
+        <table class="param-table">
+          <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          <tr><td>name</td><td>string</td><td><span class="required">required</span></td><td>Menu item name</td></tr>
+          <tr><td>category</td><td>string</td><td><span class="optional">optional</span></td><td>Category (e.g. "Entrees")</td></tr>
+          <tr><td>servingSize</td><td>number</td><td><span class="optional">optional</span></td><td>Serving size in grams (default 100)</td></tr>
+          <tr><td>servingUnit</td><td>string</td><td><span class="optional">optional</span></td><td>Serving unit (default "g")</td></tr>
+          <tr><td>ingredients</td><td>array</td><td><span class="required">required</span></td><td>Array of { foodId, grams } objects</td></tr>
+        </table>
+
+        <div class="detail-label">Example Response</div>
+        <pre>{
+  <span class="key">"id"</span>: <span class="str">"uuid-here"</span>,
+  <span class="key">"name"</span>: <span class="str">"Grilled Chicken Bowl"</span>,
+  <span class="key">"source"</span>: <span class="str">"vendor"</span>,
+  <span class="key">"nutriScore"</span>: <span class="num">1</span>,
+  <span class="key">"nutriGrade"</span>: <span class="str">"B"</span>,
+  <span class="key">"nutrition"</span>: { <span class="key">"calories"</span>: <span class="num">420</span>, <span class="key">"protein"</span>: <span class="num">45</span> },
+  <span class="key">"message"</span>: <span class="str">"Food created. Nutrition calculated from USDA-verified ingredient data."</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== CONTRIBUTIONS ==================== -->
   <div class="section" data-group="contributions">
-    <div class="section-title">Contribution Endpoints <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
+    <div class="section-title">Community Contributions <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(authenticated)</span></div>
 
     <!-- POST /api/v1/contributions -->
     <div class="endpoint" data-group="contributions">
@@ -1522,46 +2215,26 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Submit a community contribution: add a new food, correct existing food data, or add a barcode to an existing food. Contributions are reviewed before being applied.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Submit a new food entry, a correction to existing data, or a barcode association. Contributions are reviewed before being applied.</p>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
           <tr><td>type</td><td>string</td><td><span class="required">required</span></td><td>One of: new_food, correction, barcode_add</td></tr>
-          <tr><td>food_id</td><td>string</td><td><span class="optional">conditional</span></td><td>Required for correction and barcode_add types</td></tr>
+          <tr><td>food_id</td><td>string</td><td><span class="optional">conditional</span></td><td>Required for correction and barcode_add</td></tr>
           <tr><td>name</td><td>string</td><td><span class="optional">conditional</span></td><td>Required for new_food</td></tr>
           <tr><td>category</td><td>string</td><td><span class="optional">conditional</span></td><td>Required for new_food</td></tr>
           <tr><td>calories</td><td>number</td><td><span class="optional">conditional</span></td><td>Required for new_food</td></tr>
           <tr><td>barcode</td><td>string</td><td><span class="optional">conditional</span></td><td>Required for barcode_add</td></tr>
-          <tr><td>...</td><td>any</td><td><span class="optional">optional</span></td><td>Any additional nutrition fields to set/correct</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"id"</span>: <span class="str">"contribution-uuid"</span>,
+  <span class="key">"id"</span>: <span class="str">"uuid-here"</span>,
   <span class="key">"type"</span>: <span class="str">"new_food"</span>,
   <span class="key">"status"</span>: <span class="str">"pending"</span>,
-  <span class="key">"food_id"</span>: <span class="null">null</span>,
   <span class="key">"message"</span>: <span class="str">"Contribution submitted for review. Thank you!"</span>
 }</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Request Body (JSON)</label>
-            <textarea class="try-input" data-body>{
-  "type": "new_food",
-  "name": "Homemade Granola",
-  "category": "Cereals",
-  "calories": 450,
-  "protein": 10,
-  "total_fat": 18,
-  "total_carbohydrates": 65
-}</textarea>
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/contributions', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
       </div>
     </div>
 
@@ -1575,38 +2248,20 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns a paginated list of contributions submitted with your API key. Optionally filter by status.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Returns a paginated list of your own contributions with optional status filtering.</p>
 
         <div class="detail-label">Query Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>status</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by status: pending, approved, rejected</td></tr>
+          <tr><td>status</td><td>string</td><td><span class="optional">optional</span></td><td>Filter: pending, approved, rejected</td></tr>
           <tr><td>limit</td><td>integer</td><td><span class="optional">optional</span></td><td>Results per page (default 25, max 100)</td></tr>
-          <tr><td>offset</td><td>integer</td><td><span class="optional">optional</span></td><td>Pagination offset (default 0)</td></tr>
+          <tr><td>offset</td><td>integer</td><td><span class="optional">optional</span></td><td>Pagination offset</td></tr>
         </table>
-
-        <div class="detail-label">Example Response</div>
-        <pre>{
-  <span class="key">"contributions"</span>: [
-    {
-      <span class="key">"id"</span>: <span class="str">"contrib-uuid"</span>,
-      <span class="key">"type"</span>: <span class="str">"new_food"</span>,
-      <span class="key">"status"</span>: <span class="str">"pending"</span>,
-      <span class="key">"data"</span>: { <span class="key">"name"</span>: <span class="str">"Homemade Granola"</span> },
-      <span class="key">"createdAt"</span>: <span class="str">"2026-03-20T12:00:00Z"</span>
-    }
-  ],
-  <span class="key">"total"</span>: <span class="num">3</span>,
-  <span class="key">"limit"</span>: <span class="num">25</span>,
-  <span class="key">"offset"</span>: <span class="num">0</span>
-}</pre>
 
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
-            <label>Filters</label>
             <input class="try-input" data-param="status" placeholder="status (pending)" style="max-width:150px" />
-            <input class="try-input" data-param="limit" placeholder="limit" style="max-width:80px" />
           </div>
           <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/contributions', true)">Send Request</button>
           <div class="try-result"></div>
@@ -1624,31 +2279,18 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns details for a specific contribution. You can only view your own contributions (matched by API key).</p>
+        <p style="font-size:14px;color:var(--text-muted)">Returns details for a specific contribution (must be yours).</p>
 
         <div class="detail-label">Path Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Contribution UUID</td></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Contribution ID</td></tr>
         </table>
-
-        <div class="detail-label">Example Response</div>
-        <pre>{
-  <span class="key">"id"</span>: <span class="str">"contrib-uuid"</span>,
-  <span class="key">"type"</span>: <span class="str">"new_food"</span>,
-  <span class="key">"status"</span>: <span class="str">"approved"</span>,
-  <span class="key">"foodId"</span>: <span class="null">null</span>,
-  <span class="key">"data"</span>: { <span class="key">"name"</span>: <span class="str">"Homemade Granola"</span>, <span class="key">"calories"</span>: <span class="num">450</span> },
-  <span class="key">"createdAt"</span>: <span class="str">"2026-03-20T12:00:00Z"</span>,
-  <span class="key">"reviewedAt"</span>: <span class="str">"2026-03-21T08:00:00Z"</span>,
-  <span class="key">"reviewerNote"</span>: <span class="null">null</span>
-}</pre>
 
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
-            <label>Contribution ID</label>
-            <input class="try-input" data-path="id" placeholder="contribution-uuid" />
+            <input class="try-input" data-path="id" placeholder="contribution-id" />
           </div>
           <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/contributions/:id', true)">Send Request</button>
           <div class="try-result"></div>
@@ -1659,51 +2301,32 @@ const HTML = `<!DOCTYPE html>
 
   <!-- ==================== ADMIN ==================== -->
   <div class="section" data-group="admin">
-    <div class="section-title">Admin Endpoints <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(admin tier required)</span></div>
+    <div class="section-title">Admin Endpoints <span style="font-size:13px;color:var(--text-muted);font-weight:400;margin-left:8px;">(admin API key required)</span></div>
 
     <!-- GET /api/v1/admin/contributions -->
     <div class="endpoint" data-group="admin">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="method get">GET</span>
         <span class="endpoint-path">/api/v1/admin/contributions</span>
-        <span class="endpoint-desc">List all contributions</span>
+        <span class="endpoint-desc">List all contributions (admin)</span>
         <span class="endpoint-chevron">&#9654;</span>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Returns all contributions across all users. Requires admin-tier API key. Optionally filter by status.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Returns all contributions from all users with optional status filtering. Requires admin tier API key.</p>
 
         <div class="detail-label">Query Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>status</td><td>string</td><td><span class="optional">optional</span></td><td>Filter by status: pending, approved, rejected</td></tr>
+          <tr><td>status</td><td>string</td><td><span class="optional">optional</span></td><td>Filter: pending, approved, rejected</td></tr>
           <tr><td>limit</td><td>integer</td><td><span class="optional">optional</span></td><td>Results per page (default 25, max 100)</td></tr>
-          <tr><td>offset</td><td>integer</td><td><span class="optional">optional</span></td><td>Pagination offset (default 0)</td></tr>
+          <tr><td>offset</td><td>integer</td><td><span class="optional">optional</span></td><td>Pagination offset</td></tr>
         </table>
-
-        <div class="detail-label">Example Response</div>
-        <pre>{
-  <span class="key">"contributions"</span>: [
-    {
-      <span class="key">"id"</span>: <span class="str">"contrib-uuid"</span>,
-      <span class="key">"apiKey"</span>: <span class="str">"cult_..."</span>,
-      <span class="key">"type"</span>: <span class="str">"new_food"</span>,
-      <span class="key">"status"</span>: <span class="str">"pending"</span>,
-      <span class="key">"data"</span>: { <span class="key">"name"</span>: <span class="str">"Homemade Granola"</span> },
-      <span class="key">"createdAt"</span>: <span class="str">"2026-03-20T12:00:00Z"</span>
-    }
-  ],
-  <span class="key">"total"</span>: <span class="num">15</span>,
-  <span class="key">"limit"</span>: <span class="num">25</span>,
-  <span class="key">"offset"</span>: <span class="num">0</span>
-}</pre>
 
         <div class="try-it">
           <div class="try-it-title">&#9889; Try it</div>
           <div class="try-input-group">
-            <label>Filters</label>
             <input class="try-input" data-param="status" placeholder="status (pending)" style="max-width:150px" />
-            <input class="try-input" data-param="limit" placeholder="limit" style="max-width:80px" />
           </div>
           <button class="try-btn" onclick="tryRequest(this, 'GET', '/api/v1/admin/contributions', true)">Send Request</button>
           <div class="try-result"></div>
@@ -1721,30 +2344,20 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Approves a pending contribution and applies the changes to the database. For new_food, creates a new food entry. For correction, updates the existing food. For barcode_add, adds the barcode. Only pending contributions can be approved.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Approves a pending contribution and applies its changes (inserts new food, updates existing food, or adds barcode). Requires admin tier API key.</p>
 
         <div class="detail-label">Path Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Contribution UUID</td></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Contribution ID</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"id"</span>: <span class="str">"contrib-uuid"</span>,
+  <span class="key">"id"</span>: <span class="str">"uuid-here"</span>,
   <span class="key">"status"</span>: <span class="str">"approved"</span>,
   <span class="key">"message"</span>: <span class="str">"Contribution approved and applied."</span>
 }</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Contribution ID</label>
-            <input class="try-input" data-path="id" placeholder="contribution-uuid" />
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/admin/contributions/:id/approve', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
       </div>
     </div>
 
@@ -1758,41 +2371,27 @@ const HTML = `<!DOCTYPE html>
       </div>
       <div class="endpoint-body">
         <div class="detail-label">Description</div>
-        <p style="font-size:14px;color:var(--text-muted)">Rejects a pending contribution with an optional reason. Only pending contributions can be rejected.</p>
+        <p style="font-size:14px;color:var(--text-muted)">Rejects a pending contribution with an optional reason. Requires admin tier API key.</p>
 
         <div class="detail-label">Path Parameters</div>
         <table class="param-table">
           <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Contribution UUID</td></tr>
+          <tr><td>id</td><td>string</td><td><span class="required">required</span></td><td>Contribution ID</td></tr>
         </table>
 
         <div class="detail-label">Request Body</div>
         <table class="param-table">
           <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-          <tr><td>reason</td><td>string</td><td><span class="optional">optional</span></td><td>Reason for rejection (shown to the contributor)</td></tr>
+          <tr><td>reason</td><td>string</td><td><span class="optional">optional</span></td><td>Rejection reason</td></tr>
         </table>
 
         <div class="detail-label">Example Response</div>
         <pre>{
-  <span class="key">"id"</span>: <span class="str">"contrib-uuid"</span>,
+  <span class="key">"id"</span>: <span class="str">"uuid-here"</span>,
   <span class="key">"status"</span>: <span class="str">"rejected"</span>,
   <span class="key">"reason"</span>: <span class="str">"Duplicate entry"</span>,
   <span class="key">"message"</span>: <span class="str">"Contribution rejected."</span>
 }</pre>
-
-        <div class="try-it">
-          <div class="try-it-title">&#9889; Try it</div>
-          <div class="try-input-group">
-            <label>Contribution ID</label>
-            <input class="try-input" data-path="id" placeholder="contribution-uuid" />
-          </div>
-          <div class="try-input-group">
-            <label>Request Body (JSON, optional)</label>
-            <textarea class="try-input" data-body>{ "reason": "Duplicate entry" }</textarea>
-          </div>
-          <button class="try-btn" onclick="tryRequest(this, 'POST', '/api/v1/admin/contributions/:id/reject', true)">Send Request</button>
-          <div class="try-result"></div>
-        </div>
       </div>
     </div>
   </div>
@@ -1831,8 +2430,8 @@ document.getElementById('nav').addEventListener('click', function(e) {
   if (e.target.tagName !== 'BUTTON') return;
   document.querySelectorAll('#nav button').forEach(b => b.classList.remove('active'));
   e.target.classList.add('active');
-  const section = e.target.dataset.section;
-  document.querySelectorAll('.section').forEach(s => {
+  var section = e.target.dataset.section;
+  document.querySelectorAll('.section').forEach(function(s) {
     if (section === 'all') {
       s.style.display = '';
     } else {
@@ -1881,8 +2480,8 @@ function tryRequest(btn, method, pathTemplate, needsAuth) {
     opts.headers['x-api-key'] = apiKey;
   }
 
-  // Body for POST
-  if (method === 'POST') {
+  // Body for POST/PUT
+  if (method === 'POST' || method === 'PUT') {
     opts.headers['Content-Type'] = 'application/json';
     var bodyEl = card.querySelector('[data-body]');
     if (bodyEl) {
