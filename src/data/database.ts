@@ -61,6 +61,7 @@ db.exec(`
     slices_per_serving INTEGER,
     servings_per_container REAL,
     parent_food_id TEXT,
+    household_serving TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (vendor_id) REFERENCES vendors(id),
@@ -184,6 +185,14 @@ db.exec(`
     FOREIGN KEY (api_key) REFERENCES api_keys(key)
   );
 `);
+
+// Add household_serving column if missing (migration)
+try {
+  const cols = db.prepare("PRAGMA table_info(foods)").all() as any[];
+  if (!cols.some((c: any) => c.name === "household_serving")) {
+    db.exec("ALTER TABLE foods ADD COLUMN household_serving TEXT");
+  }
+} catch {}
 
 // Rebuild FTS index on startup to ensure it's in sync
 db.exec("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')");
