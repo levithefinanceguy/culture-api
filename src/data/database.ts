@@ -8,14 +8,12 @@ const DB_PATH = process.env.DB_PATH || (
 
 const db = new Database(DB_PATH);
 
-// Enable WAL mode for better concurrent read performance
-db.pragma("journal_mode = WAL");
+// Use DELETE journal mode — WAL requires shared memory which Railway volumes don't support
+db.pragma("journal_mode = DELETE");
 
 // PRAGMA optimizations for production performance
 // cache_size: negative value = KiB. -64000 = ~64MB of page cache in memory
 db.pragma("cache_size = -64000");
-// mmap_size: memory-map up to 256MB of the database file for faster reads
-db.pragma("mmap_size = 268435456");
 // temp_store: keep temporary tables and indices in memory instead of disk
 db.pragma("temp_store = MEMORY");
 
