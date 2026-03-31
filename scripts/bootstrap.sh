@@ -4,7 +4,7 @@
 
 DB_PATH="${DB_PATH:-/app/data/culture.db}"
 DB_DIR="$(dirname "$DB_PATH")"
-DB_URL="https://firebasestorage.googleapis.com/v0/b/cheeseapphq.firebasestorage.app/o/culture-db%2Fculture.db.gz?alt=media&token=ea3e5ec9-5c49-4acf-85ce-98d05ec96113"
+DB_URL="https://firebasestorage.googleapis.com/v0/b/cheeseapphq.firebasestorage.app/o/culture-db%2Fculture.db.gz?alt=media&token=683a6450-b828-4b78-be3a-54c78424c239"
 
 mkdir -p "$DB_DIR"
 
