@@ -2,7 +2,7 @@
 # Bootstrap script for Railway deployment
 # Downloads pre-built database from Firebase Storage if needed, then starts server
 
-DB_PATH="${DB_PATH:-/app/data/culture.db}"
+DB_PATH="${DB_PATH:-/tmp/culture.db}"
 DB_DIR="$(dirname "$DB_PATH")"
 DB_URL="https://firebasestorage.googleapis.com/v0/b/cheeseapphq.firebasestorage.app/o/culture-db%2Fculture.db.gz?alt=media"
 

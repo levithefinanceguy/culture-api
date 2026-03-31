@@ -2,8 +2,8 @@ import Database from "better-sqlite3";
 import path from "path";
 
 const DB_PATH = process.env.DB_PATH || (
-  // Check volume mount first, then local
-  require("fs").existsSync("/app/data") ? "/app/data/culture.db" : path.join(__dirname, "../../culture.db")
+  // Use /tmp on Railway (volume mounts don't support SQLite file locking), local path for dev
+  require("fs").existsSync("/app") ? "/tmp/culture.db" : path.join(__dirname, "../../culture.db")
 );
 
 const db = new Database(DB_PATH);
