@@ -24,11 +24,37 @@ echo "Current food count: $COUNT"
 if [ "$COUNT" -lt "1000" ]; then
   echo "Database empty or missing. Downloading pre-built database from Firebase Storage..."
 
-  curl -L -o "$DB_DIR/culture.db.gz" "$DB_URL"
+  node -e "
+const https = require('https');
+const fs = require('fs');
+const zlib = require('zlib');
+const url = '$DB_URL';
+const dest = '$DB_PATH';
 
-  if [ $? -eq 0 ] && [ -f "$DB_DIR/culture.db.gz" ]; then
-    echo "Download complete. Decompressing..."
-    gunzip -f "$DB_DIR/culture.db.gz"
+function download(u) {
+  https.get(u, (res) => {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      return download(res.headers.location);
+    }
+    if (res.statusCode !== 200) {
+      console.error('HTTP ' + res.statusCode);
+      process.exit(1);
+    }
+    const total = parseInt(res.headers['content-length'] || '0');
+    let downloaded = 0;
+    res.on('data', (chunk) => {
+      downloaded += chunk.length;
+      if (total) process.stdout.write('Downloaded ' + Math.round(downloaded/1024/1024) + '/' + Math.round(total/1024/1024) + ' MB\r');
+    });
+    res.pipe(zlib.createGunzip()).pipe(fs.createWriteStream(dest)).on('finish', () => {
+      console.log('\nDownload and decompress complete.');
+    });
+  });
+}
+download(url);
+"
+
+  if [ $? -eq 0 ] && [ -f "$DB_PATH" ]; then
 
     # Verify the download worked
     COUNT=$(node -e "
