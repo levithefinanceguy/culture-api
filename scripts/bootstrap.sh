@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bootstrap script for Railway deployment
-# Downloads and imports USDA data if database is empty
+# Starts server immediately, imports data in background if needed
 
 DB_PATH="${DB_PATH:-/app/data/culture.db}"
 
@@ -18,20 +18,24 @@ try {
 echo "Current food count: $COUNT"
 
 if [ "$COUNT" -lt "1000" ]; then
-  echo "Database empty or missing. Running USDA bulk import..."
-  echo "This will download ~2GB of data and take 10-15 minutes."
-  npm run import:bulk
+  echo "Database empty. Starting server first, then importing in background..."
+  # Start server in background
+  npm run start:server &
+  SERVER_PID=$!
 
-  echo "Calculating nutrition scores..."
-  npx ts-node scripts/add-scores.ts
+  # Wait for server to be ready
+  sleep 5
 
-  echo "Calculating culture scores..."
-  npx ts-node scripts/add-culture-score.ts
+  echo "Running USDA bulk import in background..."
+  npm run import:bulk 2>&1 | tail -20
 
-  echo "Bootstrap complete!"
+  echo "Calculating scores..."
+  npx ts-node scripts/add-scores.ts 2>&1 | tail -5
+
+  echo "Bootstrap import complete! Server is running."
+  # Wait for server process
+  wait $SERVER_PID
 else
-  echo "Database has $COUNT foods. Skipping import."
+  echo "Database has $COUNT foods. Starting server."
+  npm run start:server
 fi
-
-echo "Starting server..."
-npm run start:server
