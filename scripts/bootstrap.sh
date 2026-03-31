@@ -24,38 +24,58 @@ echo "Current food count: $COUNT"
 if [ "$COUNT" -lt "1000" ]; then
   echo "Database empty or missing. Downloading pre-built database from Firebase Storage..."
 
+  # Remove any partial/corrupt DB
+  rm -f "$DB_PATH"
+
   node -e "
 const https = require('https');
 const fs = require('fs');
 const zlib = require('zlib');
-const url = '$DB_URL';
-const dest = '$DB_PATH';
+
+const url = process.argv[1];
+const dest = process.argv[2];
 
 function download(u) {
-  https.get(u, (res) => {
-    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-      return download(res.headers.location);
-    }
-    if (res.statusCode !== 200) {
-      console.error('HTTP ' + res.statusCode);
-      process.exit(1);
-    }
-    const total = parseInt(res.headers['content-length'] || '0');
-    let downloaded = 0;
-    res.on('data', (chunk) => {
-      downloaded += chunk.length;
-      if (total) process.stdout.write('Downloaded ' + Math.round(downloaded/1024/1024) + '/' + Math.round(total/1024/1024) + ' MB\r');
-    });
-    res.pipe(zlib.createGunzip()).pipe(fs.createWriteStream(dest)).on('finish', () => {
-      console.log('\nDownload and decompress complete.');
-    });
+  return new Promise((resolve, reject) => {
+    https.get(u, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return download(res.headers.location).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error('HTTP ' + res.statusCode));
+        return;
+      }
+      const total = parseInt(res.headers['content-length'] || '0');
+      let downloaded = 0;
+      res.on('data', (chunk) => {
+        downloaded += chunk.length;
+        if (total) process.stdout.write('Downloaded ' + Math.round(downloaded/1024/1024) + '/' + Math.round(total/1024/1024) + ' MB\r');
+      });
+      const gunzip = zlib.createGunzip();
+      const out = fs.createWriteStream(dest);
+      res.pipe(gunzip).pipe(out);
+      out.on('finish', () => {
+        out.close();
+        console.log('\nDownload and decompress complete.');
+        console.log('File size: ' + Math.round(fs.statSync(dest).size / 1024 / 1024) + ' MB');
+        resolve();
+      });
+      out.on('error', reject);
+      gunzip.on('error', reject);
+      res.on('error', reject);
+    }).on('error', reject);
   });
 }
-download(url);
-"
+
+download(url, dest).then(() => {
+  process.exit(0);
+}).catch((err) => {
+  console.error('Download failed:', err.message);
+  process.exit(1);
+});
+" "$DB_URL" "$DB_PATH"
 
   if [ $? -eq 0 ] && [ -f "$DB_PATH" ]; then
-
     # Verify the download worked
     COUNT=$(node -e "
 const Database = require('better-sqlite3');
@@ -66,6 +86,12 @@ try {
   db.close();
 } catch(e) { console.log(0); }
 " 2>/dev/null)
+
+    if [ "$COUNT" -lt "1000" ]; then
+      echo "ERROR: Database downloaded but only has $COUNT foods. File may be corrupt."
+      ls -la "$DB_PATH"
+      exit 1
+    fi
 
     echo "Database ready with $COUNT foods."
   else
