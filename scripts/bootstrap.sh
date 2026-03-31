@@ -8,23 +8,29 @@ DB_URL="https://firebasestorage.googleapis.com/v0/b/cheeseapphq.firebasestorage.
 
 mkdir -p "$DB_DIR"
 
-# Check if database has data
-COUNT=$(node -e "
+echo "DB_PATH: $DB_PATH"
+
+# Function to count foods — shows errors instead of hiding them
+count_foods() {
+  node -e "
 const Database = require('better-sqlite3');
 try {
-  const db = new Database('$DB_PATH');
+  const db = new Database(process.argv[1]);
   const row = db.prepare('SELECT COUNT(*) as c FROM foods').get();
   console.log(row.c);
   db.close();
-} catch(e) { console.log(0); }
-" 2>/dev/null)
+} catch(e) {
+  console.error('SQLite error:', e.code || e.message);
+  console.log(0);
+}
+" "$1" 2>&1 | tail -1
+}
 
+COUNT=$(count_foods "$DB_PATH")
 echo "Current food count: $COUNT"
 
 if [ "$COUNT" -lt "1000" ]; then
   echo "Database empty or missing. Downloading pre-built database from Firebase Storage..."
-
-  # Remove any partial/corrupt DB
   rm -f "$DB_PATH"
 
   node -e "
@@ -49,14 +55,16 @@ function download(u) {
       let downloaded = 0;
       res.on('data', (chunk) => {
         downloaded += chunk.length;
-        if (total) process.stdout.write('Downloaded ' + Math.round(downloaded/1024/1024) + '/' + Math.round(total/1024/1024) + ' MB\r');
+        if (total && downloaded % (5*1024*1024) < chunk.length) {
+          console.log('Downloaded ' + Math.round(downloaded/1024/1024) + '/' + Math.round(total/1024/1024) + ' MB');
+        }
       });
       const gunzip = zlib.createGunzip();
       const out = fs.createWriteStream(dest);
       res.pipe(gunzip).pipe(out);
       out.on('finish', () => {
         out.close();
-        console.log('\nDownload and decompress complete.');
+        console.log('Download and decompress complete.');
         console.log('File size: ' + Math.round(fs.statSync(dest).size / 1024 / 1024) + ' MB');
         resolve();
       });
@@ -76,20 +84,21 @@ download(url, dest).then(() => {
 " "$DB_URL" "$DB_PATH"
 
   if [ $? -eq 0 ] && [ -f "$DB_PATH" ]; then
-    # Verify the download worked
-    COUNT=$(node -e "
-const Database = require('better-sqlite3');
-try {
-  const db = new Database('$DB_PATH');
-  const row = db.prepare('SELECT COUNT(*) as c FROM foods').get();
-  console.log(row.c);
-  db.close();
-} catch(e) { console.log(0); }
-" 2>/dev/null)
+    echo "File downloaded:"
+    ls -la "$DB_PATH"
+
+    # Check SQLite header
+    HEADER=$(head -c 16 "$DB_PATH" | strings)
+    echo "SQLite header: $HEADER"
+
+    COUNT=$(count_foods "$DB_PATH")
 
     if [ "$COUNT" -lt "1000" ]; then
-      echo "ERROR: Database downloaded but only has $COUNT foods. File may be corrupt."
-      ls -la "$DB_PATH"
+      echo "ERROR: Database has $COUNT foods after download."
+      echo "Trying direct sqlite3 check..."
+      sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM foods;" 2>&1 || true
+      echo "Tables in DB:"
+      sqlite3 "$DB_PATH" ".tables" 2>&1 || true
       exit 1
     fi
 
