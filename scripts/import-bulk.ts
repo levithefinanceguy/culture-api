@@ -140,7 +140,15 @@ async function downloadFile(url: string, dest: string): Promise<void> {
 
 function unzipFile(zipPath: string, destDir: string): string[] {
   console.log(`  Unzipping ${zipPath}...`);
-  execSync(`unzip -o "${zipPath}" -d "${destDir}"`, { stdio: "pipe" });
+  try {
+    execSync(`unzip -o "${zipPath}" -d "${destDir}"`, { stdio: "pipe" });
+  } catch {
+    // Fallback to adm-zip if unzip not available
+    console.log(`  System unzip not found, using adm-zip...`);
+    const AdmZip = require("adm-zip");
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(destDir, true);
+  }
   const files = fs.readdirSync(destDir).filter((f) => f.endsWith(".json"));
   return files.map((f) => path.join(destDir, f));
 }
