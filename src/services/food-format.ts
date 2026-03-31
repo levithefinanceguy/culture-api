@@ -12,6 +12,7 @@ export function formatFood(row: any) {
     category: row.category,
     servingSize: row.serving_size,
     servingUnit: row.serving_unit,
+    householdServing: row.household_serving || null,
     barcode: row.barcode,
     source: row.source,
     vendorId: row.vendor_id,

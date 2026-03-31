@@ -49,12 +49,12 @@ const upsert = db.prepare(`
   INSERT INTO foods (id, name, brand, category, serving_size, serving_unit, barcode, source,
     calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
     total_carbohydrates, dietary_fiber, total_sugars, protein, vitamin_d, calcium, iron, potassium,
-    ingredients_text, allergens, dietary_tags,
+    ingredients_text, allergens, dietary_tags, household_serving,
     updated_at)
   VALUES (@id, @name, @brand, @category, @serving_size, @serving_unit, @barcode, 'usda',
     @calories, @total_fat, @saturated_fat, @trans_fat, @cholesterol, @sodium,
     @total_carbohydrates, @dietary_fiber, @total_sugars, @protein, @vitamin_d, @calcium, @iron, @potassium,
-    @ingredients_text, @allergens, @dietary_tags,
+    @ingredients_text, @allergens, @dietary_tags, @household_serving,
     datetime('now'))
   ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
@@ -80,6 +80,7 @@ const upsert = db.prepare(`
     ingredients_text = excluded.ingredients_text,
     allergens = excluded.allergens,
     dietary_tags = excluded.dietary_tags,
+    household_serving = excluded.household_serving,
     updated_at = datetime('now')
 `);
 
@@ -106,6 +107,12 @@ function parseFood(item: any): Record<string, unknown> {
   const allergens = ingredientsText ? detectAllergens(ingredientsText) : [];
   const dietaryTags = detectDietaryTags(ingredientsText || "", n);
 
+  // Build household serving from available data
+  const householdServing: string | null = item.householdServingFullText
+    || (item.foodPortions && item.foodPortions.length > 0
+      ? (item.foodPortions[0].modifier ? `${item.foodPortions[0].amount || 1} ${item.foodPortions[0].modifier}` : null)
+      : null);
+
   return {
     id: `usda-${item.fdcId}`,
     name: item.description || "Unknown",
@@ -117,6 +124,7 @@ function parseFood(item: any): Record<string, unknown> {
     ingredients_text: ingredientsText,
     allergens: allergens.length > 0 ? allergens.join(",") : null,
     dietary_tags: dietaryTags.length > 0 ? dietaryTags.join(",") : null,
+    household_serving: householdServing,
     ...n,
   };
 }
