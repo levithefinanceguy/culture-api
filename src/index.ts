@@ -18,6 +18,7 @@ import { recipeRoutes } from "./routes/recipe";
 import { orderRoutes } from "./routes/order";
 import { customizeRoutes } from "./routes/customize";
 import { healthRoutes } from "./routes/health";
+import { imageRoutes } from "./routes/images";
 import { authenticateApiKey } from "./middleware/auth";
 import { docsRoutes } from "./routes/docs";
 import { responseTimeLogger, compressionMiddleware, enableEtag } from "./middleware/performance";
@@ -124,6 +125,10 @@ app.get("/", (_req, res) => {
           },
           swap: "POST /api/v1/swap",
       healthScore: "GET /api/v1/foods/:id/health-score",
+      images: {
+        generate: "POST /api/v1/images/generate",
+        get: "GET /api/v1/images/:id",
+      },
       admin: {
         contributions: "GET /api/v1/admin/contributions?status=",
         approve: "POST /api/v1/admin/contributions/:id/approve",
@@ -157,6 +162,7 @@ app.use("/api/v1/recipe", authenticateApiKey, recipeRoutes);
 app.use("/api/v1/order", authenticateApiKey, orderRoutes);
 app.use("/api/v1", authenticateApiKey, customizeRoutes);
 app.use("/api/v1", authenticateApiKey, healthRoutes);
+app.use("/api/v1/images", authenticateApiKey, imageRoutes);
 
 // Error handling (must be after all routes)
 app.use(notFoundHandler);
