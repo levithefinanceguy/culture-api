@@ -76,9 +76,10 @@ imageRoutes.post("/generate", async (req: Request, res: Response) => {
     }
 
     const prompt =
-      `A professional food photography shot of ${food_name}. ` +
-      "Appetizing, well-lit, top-down or 45-degree angle, clean white or neutral background, " +
-      "realistic and detailed. No text, no labels, no watermarks.";
+      `A product photo of ${food_name} on a plain white background. ` +
+      "Show the actual product or packaging as it appears in a store — if it's a branded item, show the bag, box, or container. " +
+      "If it's a whole food (fruit, vegetable, meat), show the item by itself. " +
+      "Clean, centered, well-lit studio product photography. Nothing else in the frame. No text overlays, no labels added, no watermarks.";
 
     const imagenURL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
 
