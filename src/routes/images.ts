@@ -18,8 +18,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_food_images_name ON food_images(food_name);
 `);
 
-// Directory for stored images
-const IMAGE_DIR = process.env.IMAGE_DIR || path.join(__dirname, "../../food-images");
+// Directory for stored images — use /tmp on Railway (ephemeral filesystem loses /app files on redeploy)
+const IMAGE_DIR = process.env.IMAGE_DIR || (
+  fs.existsSync("/app") ? "/tmp/food-images" : path.join(__dirname, "../../food-images")
+);
 if (!fs.existsSync(IMAGE_DIR)) {
   fs.mkdirSync(IMAGE_DIR, { recursive: true });
 }
@@ -69,10 +71,10 @@ imageRoutes.post("/generate", async (req: Request, res: Response) => {
     }
 
     // Rate limit: max 10 generations per minute
-    const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+    // Use SQLite's datetime() so the comparison matches the stored datetime('now') format
     const recentCount = (db.prepare(
-      "SELECT COUNT(*) as count FROM food_images WHERE created_at > ?"
-    ).get(oneMinuteAgo) as any)?.count ?? 0;
+      "SELECT COUNT(*) as count FROM food_images WHERE created_at > datetime('now', '-1 minute')"
+    ).get() as any)?.count ?? 0;
 
     if (recentCount >= 10) {
       // Silently return no image — client shows fallback icon, retries on next scan
@@ -123,15 +125,28 @@ imageRoutes.post("/generate", async (req: Request, res: Response) => {
     }
 
     const imageBuffer = Buffer.from(predictions[0].bytesBase64Encoded, "base64");
+
+    // Validate image size (max 10MB)
+    const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+    if (imageBuffer.length > MAX_IMAGE_SIZE) {
+      res.status(413).json({ error: "Generated image exceeds 10MB size limit" });
+      return;
+    }
+
     const filePath = path.join(IMAGE_DIR, `${id}.png`);
 
-    // Save to disk
+    // Write file first, then insert DB record — avoids orphaned rows if write fails
     fs.writeFileSync(filePath, imageBuffer);
 
-    // Cache in database
-    db.prepare(
-      "INSERT INTO food_images (id, food_name, file_path) VALUES (?, ?, ?)"
-    ).run(id, normalized, filePath);
+    try {
+      db.prepare(
+        "INSERT INTO food_images (id, food_name, file_path) VALUES (?, ?, ?)"
+      ).run(id, normalized, filePath);
+    } catch (dbErr: any) {
+      // Clean up written file if DB insert fails
+      try { fs.unlinkSync(filePath); } catch {}
+      throw dbErr;
+    }
 
     res.json({ image_url: `/api/v1/images/${id}`, cached: false });
   } catch (err: any) {
