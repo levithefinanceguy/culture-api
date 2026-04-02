@@ -62,9 +62,21 @@ imageRoutes.post("/generate", async (req: Request, res: Response) => {
     const id = crypto.createHash("md5").update(normalized).digest("hex");
 
     // Check cache
-    const cached = db.prepare("SELECT id FROM food_images WHERE id = ?").get(id) as any;
+    const cached = db.prepare("SELECT id, file_path FROM food_images WHERE id = ?").get(id) as any;
     if (cached) {
       res.json({ image_url: `/api/v1/images/${id}`, cached: true });
+      return;
+    }
+
+    // Rate limit: max 10 generations per minute
+    const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+    const recentCount = (db.prepare(
+      "SELECT COUNT(*) as count FROM food_images WHERE created_at > ?"
+    ).get(oneMinuteAgo) as any)?.count ?? 0;
+
+    if (recentCount >= 10) {
+      // Silently return no image — client shows fallback icon, retries on next scan
+      res.json({ image_url: null, cached: false, rate_limited: true });
       return;
     }
 
