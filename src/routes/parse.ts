@@ -84,7 +84,7 @@ async function parseWithGemini(
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const result = await Promise.race([
       model.generateContent(`${GEMINI_PROMPT}\n\nInput: "${input}"`),

@@ -201,7 +201,7 @@ The user wants to swap "${swap_out}" because: ${reason}.${contextStr}${prefsStr}
 Suggest 3-5 alternatives:`;
 
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const result = await Promise.race([
       model.generateContent(prompt),

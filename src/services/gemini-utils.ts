@@ -50,7 +50,7 @@ export function parseGeminiJson(responseText: string): any {
  * Get a Gemini GenerativeModel instance, or null if GEMINI_API_KEY is not set.
  */
 export function getGeminiModel(
-  modelName: string = "gemini-2.0-flash"
+  modelName: string = "gemini-2.5-flash"
 ): GenerativeModel | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
