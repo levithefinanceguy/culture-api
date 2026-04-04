@@ -35,7 +35,7 @@ try { const db = new Database(process.argv[1]); const r = db.prepare(\"SELECT CO
 " "$DB_PATH" 2>&1 | tail -1)
 echo "Vendor food count: $VENDOR_COUNT"
 
-if [ "$COUNT" -lt "1000" ] || [ "$VENDOR_COUNT" -lt "1200" ]; then
+if [ "$COUNT" -lt "1000" ] || [ "$VENDOR_COUNT" -lt "1275" ]; then
   echo "Database needs update (foods: $COUNT, vendors: $VENDOR_COUNT). Downloading..."
   rm -f "$DB_PATH"
 
