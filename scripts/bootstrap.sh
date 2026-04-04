@@ -29,6 +29,16 @@ try {
 COUNT=$(count_foods "$DB_PATH")
 echo "Current food count: $COUNT"
 
+# Force re-download for restaurant update (v2)
+DB_VERSION_FILE="${DB_DIR}/.db_version"
+CURRENT_VERSION="2"
+STORED_VERSION=$(cat "$DB_VERSION_FILE" 2>/dev/null || echo "0")
+if [ "$STORED_VERSION" != "$CURRENT_VERSION" ]; then
+  echo "Database version mismatch ($STORED_VERSION vs $CURRENT_VERSION). Forcing re-download..."
+  rm -f "$DB_PATH"
+  echo "$CURRENT_VERSION" > "$DB_VERSION_FILE"
+fi
+
 VENDOR_COUNT=$(node -e "
 const Database = require('better-sqlite3');
 try { const db = new Database(process.argv[1]); const r = db.prepare(\"SELECT COUNT(*) as c FROM foods WHERE source='vendor'\").get(); console.log(r.c); db.close(); } catch(e) { console.log(0); }
