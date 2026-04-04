@@ -29,8 +29,14 @@ try {
 COUNT=$(count_foods "$DB_PATH")
 echo "Current food count: $COUNT"
 
-if [ "$COUNT" -lt "1000" ]; then
-  echo "Database empty or missing. Downloading pre-built database from Firebase Storage..."
+VENDOR_COUNT=$(node -e "
+const Database = require('better-sqlite3');
+try { const db = new Database(process.argv[1]); const r = db.prepare(\"SELECT COUNT(*) as c FROM foods WHERE source='vendor'\").get(); console.log(r.c); db.close(); } catch(e) { console.log(0); }
+" "$DB_PATH" 2>&1 | tail -1)
+echo "Vendor food count: $VENDOR_COUNT"
+
+if [ "$COUNT" -lt "1000" ] || [ "$VENDOR_COUNT" -lt "1200" ]; then
+  echo "Database needs update (foods: $COUNT, vendors: $VENDOR_COUNT). Downloading..."
   rm -f "$DB_PATH"
 
   node -e "
