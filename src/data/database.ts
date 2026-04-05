@@ -182,6 +182,20 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (api_key) REFERENCES api_keys(key)
   );
+
+  CREATE TABLE IF NOT EXISTS restaurant_chains (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    domain TEXT,
+    nutrition_url TEXT,
+    category TEXT DEFAULT 'Other',
+    location_count INTEGER DEFAULT 0,
+    last_scraped TEXT,
+    item_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    error_message TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_restaurant_chains_status ON restaurant_chains(status);
 `);
 
 // Add household_serving column if missing (migration)
