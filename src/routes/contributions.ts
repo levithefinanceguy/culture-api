@@ -80,40 +80,15 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
 
   db.prepare(`
     INSERT INTO contributions (id, api_key, type, food_id, data, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, apiKey, type, food_id || null, data, type === "new_food" ? "approved" : "pending");
+    VALUES (?, ?, ?, ?, ?, 'pending')
+  `).run(id, apiKey, type, food_id || null, data);
 
-  // Auto-insert new_food contributions directly into the foods table so they're immediately searchable
-  if (type === "new_food") {
-    const foodId = `community-${id}`;
-    const { name, brand, category, barcode, calories, protein, total_carbohydrates, total_fat,
-            dietary_fiber, total_sugars, sodium, saturated_fat, trans_fat, cholesterol,
-            serving_size, serving_unit, ingredients_text } = rest;
-    try {
-      db.prepare(`
-        INSERT OR IGNORE INTO foods (id, name, brand, category, barcode, source, ingredients_text,
-          calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
-          total_carbohydrates, dietary_fiber, total_sugars, protein,
-          serving_size, serving_unit)
-        VALUES (?, ?, ?, ?, ?, 'community', ?,
-          ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?,
-          ?, ?)
-      `).run(
-        foodId, name || "Unknown", brand || null, category || "Uncategorized", barcode || null, ingredients_text || null,
-        calories || 0, total_fat || 0, saturated_fat || 0, trans_fat || 0, cholesterol || 0, sodium || 0,
-        total_carbohydrates || 0, dietary_fiber || 0, total_sugars || 0, protein || 0,
-        serving_size || 100, serving_unit || "g"
-      );
-    } catch (e: any) {
-      console.error("Auto-insert food failed:", e.message);
-    }
-  }
+  // Contributions stay pending for admin review — no auto-insert into foods table
 
   res.status(201).json({
     id,
     type,
-    status: type === "new_food" ? "approved" : "pending",
+    status: "pending",
     food_id: food_id || null,
     message: type === "new_food"
       ? "Food added to the database. It's now searchable!"
