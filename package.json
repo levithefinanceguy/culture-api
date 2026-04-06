@@ -13,6 +13,7 @@
     "migrate:scores": "ts-node scripts/add-scores.ts",
     "import:chains": "ts-node scripts/import-chains.ts",
     "scrape:chains": "ts-node scripts/scrape-chains.ts",
+    "import:pdfs": "ts-node scripts/import-from-pdfs.ts",
     "generate:chains": "ts-node scripts/generate-chain-list.ts",
     "scrape:queue": "ts-node scripts/scrape-queue.ts",
     "cron:scrape": "ts-node scripts/cron-daily-scrape.ts",

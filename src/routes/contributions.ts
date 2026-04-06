@@ -78,17 +78,45 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
   const id = uuid();
   const data = JSON.stringify(rest);
 
+  // Auto-approve and insert if it has a barcode (verified from label scan)
+  const hasBarcode = rest.barcode && rest.barcode.length > 3;
+  const status = hasBarcode ? "approved" : "pending";
+
   db.prepare(`
     INSERT INTO contributions (id, api_key, type, food_id, data, status)
-    VALUES (?, ?, ?, ?, ?, 'pending')
-  `).run(id, apiKey, type, food_id || null, data);
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, apiKey, type, food_id || null, data, status);
 
-  // Contributions stay pending for admin review — no auto-insert into foods table
+  // Only auto-insert into foods table if barcode verified (from label scan)
+  if (type === "new_food" && hasBarcode) {
+    const foodId = `barcode-${rest.barcode}`;
+    try {
+      db.prepare(`
+        INSERT OR REPLACE INTO foods (id, name, brand, category, barcode, source, ingredients_text,
+          calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
+          total_carbohydrates, dietary_fiber, total_sugars, protein,
+          serving_size, serving_unit)
+        VALUES (?, ?, ?, ?, ?, 'community', ?,
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?)
+      `).run(
+        foodId, rest.name || "Unknown", rest.brand || null, rest.category || "Uncategorized",
+        rest.barcode, rest.ingredients_text || null,
+        rest.calories || 0, rest.total_fat || 0, rest.saturated_fat || 0,
+        rest.trans_fat || 0, rest.cholesterol || 0, rest.sodium || 0,
+        rest.total_carbohydrates || 0, rest.dietary_fiber || 0, rest.total_sugars || 0,
+        rest.protein || 0, rest.serving_size || 100, rest.serving_unit || "g"
+      );
+    } catch (e: any) {
+      console.error("Auto-insert barcode food failed:", e.message);
+    }
+  }
 
   res.status(201).json({
     id,
     type,
-    status: "pending",
+    status,
     food_id: food_id || null,
     message: type === "new_food"
       ? "Food added to the database. It's now searchable!"
