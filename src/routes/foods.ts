@@ -145,7 +145,8 @@ foodRoutes.get("/suggest", (req, res) => {
              f.calories, f.serving_size,
              fts.rank + (f.popularity * -0.1)
                + CASE WHEN lower(f.name) LIKE @prefix THEN -500 ELSE 0 END
-               + CASE WHEN f.source = 'vendor' THEN -20 ELSE 0 END
+               + CASE WHEN f.source = 'vendor' THEN -500 ELSE 0 END
+               + CASE WHEN f.source = 'vendor' AND f.brand IS NOT NULL THEN -200 ELSE 0 END
                + CASE WHEN f.popularity > 10 THEN -50 ELSE 0 END
                + length(f.name) * 0.3
              AS score
@@ -436,14 +437,15 @@ foodRoutes.get("/search", async (req, res) => {
   const params: any = { limit, offset };
   const whereClauses: string[] = ["foods_fts MATCH @q"];
 
-  // Custom ranking: combine FTS5 rank with preferences for
-  // exact matches, shorter names, unbranded foods, and USDA source
+  // Custom ranking: vendor items first, then exact matches, shorter names
   const rankExpr = `
       fts.rank
       + CASE WHEN lower(f.name) = lower(@rawQuery) THEN -1000 ELSE 0 END
-      + CASE WHEN f.brand IS NULL OR f.brand = '' THEN -50 ELSE 0 END
-      + CASE WHEN f.source = 'usda' THEN -30 ELSE 0 END
-      + length(f.name) * 0.5`;
+      + CASE WHEN f.source = 'vendor' THEN -500 ELSE 0 END
+      + CASE WHEN f.source = 'vendor' AND f.brand IS NOT NULL THEN -200 ELSE 0 END
+      + CASE WHEN f.source = 'usda' AND f.name = upper(f.name) THEN 100 ELSE 0 END
+      + CASE WHEN f.popularity > 0 THEN -(f.popularity * 2) ELSE 0 END
+      + length(f.name) * 0.3`;
 
   params.q = ftsQuery;
   params.rawQuery = query;
