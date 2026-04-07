@@ -101,7 +101,7 @@ async function importChain(chainName: string, searchModel: any, formatModel: any
   try {
     // Step 1: Search the web for the chain's nutrition data
     const searchResult = await searchModel.generateContent(
-      `Search ${chainName}'s official US website or nutrition page and list every current menu item with its exact published calorie count. Include all sizes (Small, Medium, Large). Include sides, drinks, breakfast, desserts. List them all with calories.`
+      `Search ${chainName}'s official US website or nutrition PDF and list every current menu item with its FULL published nutrition facts: calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, protein, and serving size in grams. Include all sizes (Small, Medium, Large). Include sides, drinks, breakfast, desserts. Use the EXACT numbers as published.`
     );
     const searchText = searchResult.response.text();
     console.log(`  [search] Got ${searchText.length} chars of nutrition data`);
