@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import db from "../data/database";
 import { cache } from "../middleware/cache";
 import { normalizeQuery, fuzzyLikeSearch, fuzzyFTS5Search } from "../services/fuzzy-search";
@@ -9,6 +10,7 @@ import { calculatePersonalHealthScore } from "../services/health-score";
 import { detectAllergens, detectDietaryTags } from "../services/food-analysis";
 import { createFood } from "../services/food-create";
 import { validateFoodData } from "../services/food-validation";
+import { parseGeminiJson } from "../services/gemini-utils";
 
 export const foodRoutes = Router();
 
@@ -102,6 +104,207 @@ function formatOFFFood(off: OFFFood) {
     attribution: OFF_ATTRIBUTION,
     message: "This result is from Open Food Facts. Verify and save to add it to Culture.",
   };
+}
+
+// --- AI web search fallback ---
+
+const aiUpsertVendor = db.prepare(`
+  INSERT INTO vendors (id, name, type, api_key)
+  VALUES (?, ?, 'restaurant', ?)
+  ON CONFLICT(id) DO UPDATE SET name = excluded.name
+`);
+
+const aiUpsertFood = db.prepare(`
+  INSERT INTO foods (id, name, brand, category, serving_size, serving_unit, source, vendor_id,
+    calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
+    total_carbohydrates, dietary_fiber, total_sugars, protein,
+    nutri_score, nutri_grade, culture_score, dietary_tags)
+  VALUES (@id, @name, @brand, @category, @serving_size, @serving_unit, 'vendor', @vendor_id,
+    @calories, @total_fat, @saturated_fat, @trans_fat, @cholesterol, @sodium,
+    @total_carbohydrates, @dietary_fiber, @total_sugars, @protein,
+    @nutri_score, @nutri_grade, @culture_score, @dietary_tags)
+  ON CONFLICT(id) DO UPDATE SET
+    calories=excluded.calories, total_fat=excluded.total_fat, saturated_fat=excluded.saturated_fat,
+    trans_fat=excluded.trans_fat, cholesterol=excluded.cholesterol, sodium=excluded.sodium,
+    total_carbohydrates=excluded.total_carbohydrates, dietary_fiber=excluded.dietary_fiber,
+    total_sugars=excluded.total_sugars, protein=excluded.protein,
+    serving_size=excluded.serving_size, serving_unit=excluded.serving_unit,
+    updated_at=datetime('now')
+`);
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/**
+ * Use Gemini with Google Search grounding to find nutrition for a food query.
+ * Auto-inserts found items into the DB. Returns formatted food objects.
+ */
+async function aiSearchAndInsert(query: string): Promise<any[]> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return [];
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+
+  // Step 1: Web-grounded search for the food
+  const searchModel = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: { temperature: 0 },
+    tools: [{ googleSearch: {} }],
+  } as any);
+
+  const searchResult = await Promise.race([
+    searchModel.generateContent(
+      `Search for the exact published nutrition facts for "${query}". If this is a restaurant menu item, find the official nutrition data from the restaurant's website. If it's a generic food, find USDA or authoritative nutrition data. Include: calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, protein, and serving size. List all size variants if applicable (Small, Medium, Large).`
+    ),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("AI search timeout")), 15000)
+    ),
+  ]);
+  const searchText = searchResult.response.text();
+  if (searchText.length < 30) return [];
+
+  // Step 2: Structure the data
+  const formatModel = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: { temperature: 0 },
+  });
+
+  const formatResult = await Promise.race([
+    formatModel.generateContent(
+      `Convert this nutrition data into a JSON array. Each item must have:
+- name (string)
+- brand (string or null — the restaurant/brand name if applicable)
+- category (string, e.g. "Burgers", "Sides", "Drinks", "Snacks", "Grains")
+- calories (integer, per serving as published)
+- totalFat (number, grams)
+- saturatedFat (number, grams)
+- transFat (number, grams)
+- cholesterol (number, mg)
+- sodium (number, mg)
+- totalCarbohydrates (number, grams)
+- dietaryFiber (number, grams)
+- totalSugars (number, grams)
+- protein (number, grams)
+- servingSize (number, grams — estimate if not given)
+
+Return ONLY the JSON array.
+
+Data:\n${searchText}`
+    ),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Format timeout")), 10000)
+    ),
+  ]);
+
+  const items = parseGeminiJson(formatResult.response.text());
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const results: any[] = [];
+
+  for (const item of items) {
+    if (!item.name || !item.calories) continue;
+
+    const brand = item.brand || null;
+    const sv = item.servingSize || 100;
+    const factor = sv > 0 ? 100 / sv : 1;
+
+    // Create vendor if brand exists
+    let vendorId: string | null = null;
+    if (brand) {
+      const brandSlug = slugify(brand);
+      vendorId = `vendor-${brandSlug}`;
+      try { aiUpsertVendor.run(vendorId, brand, `key-${brandSlug}`); } catch {}
+    }
+
+    const itemSlug = slugify(item.name);
+    const id = brand
+      ? `chain-${slugify(brand)}-${itemSlug}`
+      : `ai-${itemSlug}`;
+
+    const nutriResult = calculateNutriScore(
+      {
+        calories: item.calories * factor,
+        totalSugars: (item.totalSugars || 0) * factor,
+        saturatedFat: (item.saturatedFat || 0) * factor,
+        sodium: (item.sodium || 0) * factor,
+        dietaryFiber: (item.dietaryFiber || 0) * factor,
+        protein: (item.protein || 0) * factor,
+      },
+      item.category
+    );
+
+    const dietaryTags = detectDietaryTags("", {
+      total_carbohydrates: item.totalCarbohydrates || 0,
+      protein: item.protein || 0,
+      total_fat: item.totalFat || 0,
+      total_sugars: item.totalSugars || 0,
+      dietary_fiber: item.dietaryFiber || 0,
+    });
+
+    // Insert into DB (per-100g)
+    try {
+      aiUpsertFood.run({
+        id,
+        name: item.name,
+        brand,
+        category: item.category || "Other",
+        serving_size: sv,
+        serving_unit: "g",
+        vendor_id: vendorId,
+        calories: item.calories * factor,
+        total_fat: (item.totalFat || 0) * factor,
+        saturated_fat: (item.saturatedFat || 0) * factor,
+        trans_fat: (item.transFat || 0) * factor,
+        cholesterol: (item.cholesterol || 0) * factor,
+        sodium: (item.sodium || 0) * factor,
+        total_carbohydrates: (item.totalCarbohydrates || 0) * factor,
+        dietary_fiber: (item.dietaryFiber || 0) * factor,
+        total_sugars: (item.totalSugars || 0) * factor,
+        protein: (item.protein || 0) * factor,
+        nutri_score: nutriResult.score,
+        nutri_grade: nutriResult.grade,
+        culture_score: 0,
+        dietary_tags: dietaryTags.join(","),
+      });
+    } catch {}
+
+    // Re-read from DB to get properly formatted result
+    try {
+      const dbFood = db.prepare("SELECT * FROM foods WHERE id = ?").get(id) as any;
+      if (dbFood) {
+        results.push(formatFood(dbFood));
+        continue;
+      }
+    } catch {}
+
+    // Fallback: return inline format
+    results.push({
+      id,
+      name: item.name,
+      brand,
+      category: item.category || "Other",
+      servingSize: sv,
+      servingUnit: "g",
+      source: "vendor",
+      nutrition: {
+        calories: item.calories * factor,
+        totalFat: (item.totalFat || 0) * factor,
+        saturatedFat: (item.saturatedFat || 0) * factor,
+        transFat: (item.transFat || 0) * factor,
+        cholesterol: (item.cholesterol || 0) * factor,
+        sodium: (item.sodium || 0) * factor,
+        totalCarbohydrates: (item.totalCarbohydrates || 0) * factor,
+        dietaryFiber: (item.dietaryFiber || 0) * factor,
+        totalSugars: (item.totalSugars || 0) * factor,
+        protein: (item.protein || 0) * factor,
+      },
+      nutriGrade: nutriResult.grade,
+    });
+  }
+
+  console.log(`[ai-search] "${query}" → ${results.length} items found and inserted`);
+  return results;
 }
 
 // Search foods (FTS5 with fuzzy fallback, Open Food Facts as final fallback)
@@ -224,6 +427,47 @@ foodRoutes.get("/search", async (req, res) => {
 
   // Fast path: FTS5 found results
   if (foods.length > 0) {
+    // When AI is enabled, check if results actually match the query well.
+    // For multi-word queries like "cheese coney gold star", if the top results
+    // only match "cheese" and miss "coney" or "gold star", fall through to AI.
+    const aiEnabled = req.query.ai === "true";
+    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+
+    if (aiEnabled && queryWords.length >= 2) {
+      const topResults = foods.slice(0, 3);
+      const hasGoodMatch = topResults.some(f => {
+        const name = ((f as any).name || "").toLowerCase();
+        const brand = ((f as any).brand || "").toLowerCase();
+        const combined = `${name} ${brand}`;
+        const matchedWords = queryWords.filter(w => combined.includes(w));
+        // Need at least 60% of query words to match
+        return matchedWords.length / queryWords.length >= 0.6;
+      });
+
+      if (!hasGoodMatch) {
+        // Results don't match the query well — try AI search instead
+        try {
+          const aiResults = await aiSearchAndInsert(query);
+          if (aiResults.length > 0) {
+            const aiResult = {
+              foods: aiResults,
+              total: aiResults.length,
+              limit,
+              offset: 0,
+              did_you_mean: null as string | null,
+              source: "ai_search" as const,
+              message: "Found via AI search and added to Culture.",
+            };
+            cache.set(cacheKey, aiResult, 300);
+            res.json(aiResult);
+            return;
+          }
+        } catch {
+          // AI search failed — fall through to regular FTS results
+        }
+      }
+    }
+
     const result = { foods: foods.map(formatFood), total, limit, offset, did_you_mean: null as string | null };
     cache.set(cacheKey, result, 300);
     res.json(result);
@@ -305,6 +549,29 @@ foodRoutes.get("/search", async (req, res) => {
       }
     } catch {
       // OFF search failed — fall through to empty result
+    }
+  }
+
+  // AI web search fallback — find food via Gemini + Google Search grounding and auto-insert
+  if (req.query.ai === "true" && fuzzyEnabled && !source) {
+    try {
+      const aiResults = await aiSearchAndInsert(query);
+      if (aiResults.length > 0) {
+        const aiResult = {
+          foods: aiResults,
+          total: aiResults.length,
+          limit,
+          offset: 0,
+          did_you_mean: null as string | null,
+          source: "ai_search" as const,
+          message: "Found via AI search and added to Culture.",
+        };
+        cache.set(cacheKey, aiResult, 300);
+        res.json(aiResult);
+        return;
+      }
+    } catch {
+      // AI search failed — fall through to empty result
     }
   }
 

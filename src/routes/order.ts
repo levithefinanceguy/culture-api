@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import db from "../data/database";
 import { searchFood } from "../services/food-search";
 import {
@@ -13,6 +14,8 @@ import {
   getGeminiModel,
 } from "../services/gemini-utils";
 import { applyCustomizations } from "./customize";
+import { calculateNutriScore } from "../services/nutrition-score";
+import { detectDietaryTags } from "../services/food-analysis";
 
 export const orderRoutes = Router();
 
@@ -175,6 +178,205 @@ function searchFoodWithSize(
   return searchFoodByQuery(itemName, brand);
 }
 
+// --- Web search fallback for unmatched items ---
+
+const upsertFood = db.prepare(`
+  INSERT INTO foods (id, name, brand, category, serving_size, serving_unit, source, vendor_id,
+    calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
+    total_carbohydrates, dietary_fiber, total_sugars, protein,
+    nutri_score, nutri_grade, culture_score, dietary_tags)
+  VALUES (@id, @name, @brand, @category, @serving_size, @serving_unit, 'vendor', @vendor_id,
+    @calories, @total_fat, @saturated_fat, @trans_fat, @cholesterol, @sodium,
+    @total_carbohydrates, @dietary_fiber, @total_sugars, @protein,
+    @nutri_score, @nutri_grade, @culture_score, @dietary_tags)
+  ON CONFLICT(id) DO UPDATE SET
+    calories=excluded.calories, total_fat=excluded.total_fat, saturated_fat=excluded.saturated_fat,
+    trans_fat=excluded.trans_fat, cholesterol=excluded.cholesterol, sodium=excluded.sodium,
+    total_carbohydrates=excluded.total_carbohydrates, dietary_fiber=excluded.dietary_fiber,
+    total_sugars=excluded.total_sugars, protein=excluded.protein,
+    serving_size=excluded.serving_size, serving_unit=excluded.serving_unit,
+    nutri_score=excluded.nutri_score, nutri_grade=excluded.nutri_grade,
+    culture_score=excluded.culture_score, dietary_tags=excluded.dietary_tags,
+    updated_at=datetime('now')
+`);
+
+const upsertVendor = db.prepare(`
+  INSERT INTO vendors (id, name, type, api_key)
+  VALUES (?, ?, 'restaurant', ?)
+  ON CONFLICT(id) DO UPDATE SET name = excluded.name
+`);
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/**
+ * Use Gemini with Google Search grounding to find exact nutrition for unmatched items.
+ * Auto-inserts found items into the database for future lookups.
+ */
+async function webSearchNutrition(
+  itemNames: string[],
+  restaurant: string
+): Promise<Map<string, any>> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || itemNames.length === 0) return new Map();
+
+  const results = new Map<string, any>();
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    // Step 1: Search model with web grounding
+    const searchModel = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: { temperature: 0 },
+      tools: [{ googleSearch: {} }],
+    } as any);
+
+    const itemList = itemNames.map((n, i) => `${i + 1}. ${n}`).join("\n");
+    const searchPrompt = `Search ${restaurant}'s official nutrition information and find the EXACT published nutrition facts for these menu items:\n${itemList}\n\nFor each item, provide the exact calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, and protein as published on their official website or nutrition PDF. Include serving size in grams if available.`;
+
+    const searchResult = await Promise.race([
+      searchModel.generateContent(searchPrompt),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Web search timeout")), 15000)
+      ),
+    ]);
+    const searchText = searchResult.response.text();
+
+    if (searchText.length < 50) return results;
+
+    // Step 2: Format model to structure the data
+    const formatModel = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: { temperature: 0 },
+    });
+
+    const formatPrompt = `Convert this restaurant nutrition data into a JSON array. Each item must have exactly these fields:
+- name (string, the menu item name)
+- calories (integer, per serving)
+- totalFat (number, grams per serving)
+- saturatedFat (number, grams per serving)
+- transFat (number, grams per serving)
+- cholesterol (number, mg per serving)
+- sodium (number, mg per serving)
+- totalCarbohydrates (number, grams per serving)
+- dietaryFiber (number, grams per serving)
+- totalSugars (number, grams per serving)
+- protein (number, grams per serving)
+- servingSize (number, grams — estimate if not given)
+- category (string, e.g. "Burgers", "Sides", "Drinks")
+
+Return ONLY the JSON array, no other text.
+
+Data:\n${searchText}`;
+
+    const formatResult = await Promise.race([
+      formatModel.generateContent(formatPrompt),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Format timeout")), 10000)
+      ),
+    ]);
+    const items = parseGeminiJson(formatResult.response.text());
+
+    if (!Array.isArray(items)) return results;
+
+    const chainSlug = slugify(restaurant);
+    const vendorId = `vendor-${chainSlug}`;
+
+    // Ensure vendor exists
+    try {
+      upsertVendor.run(vendorId, restaurant, `key-${chainSlug}`);
+    } catch {}
+
+    for (const item of items) {
+      if (!item.name || !item.calories) continue;
+
+      const itemSlug = slugify(item.name);
+      const id = `chain-${chainSlug}-${itemSlug}`;
+      const sv = item.servingSize || 100;
+      const factor = sv > 0 ? 100 / sv : 1;
+
+      const nutriResult = calculateNutriScore(
+        {
+          calories: item.calories * factor,
+          totalSugars: (item.totalSugars || 0) * factor,
+          saturatedFat: (item.saturatedFat || 0) * factor,
+          sodium: (item.sodium || 0) * factor,
+          dietaryFiber: (item.dietaryFiber || 0) * factor,
+          protein: (item.protein || 0) * factor,
+        },
+        item.category
+      );
+
+      const dietaryTags = detectDietaryTags("", {
+        total_carbohydrates: item.totalCarbohydrates || 0,
+        protein: item.protein || 0,
+        total_fat: item.totalFat || 0,
+        total_sugars: item.totalSugars || 0,
+        dietary_fiber: item.dietaryFiber || 0,
+      });
+
+      // Insert into DB (per-100g storage)
+      try {
+        upsertFood.run({
+          id,
+          name: item.name,
+          brand: restaurant,
+          category: item.category || "Other",
+          serving_size: sv,
+          serving_unit: "g",
+          vendor_id: vendorId,
+          calories: item.calories * factor,
+          total_fat: (item.totalFat || 0) * factor,
+          saturated_fat: (item.saturatedFat || 0) * factor,
+          trans_fat: (item.transFat || 0) * factor,
+          cholesterol: (item.cholesterol || 0) * factor,
+          sodium: (item.sodium || 0) * factor,
+          total_carbohydrates: (item.totalCarbohydrates || 0) * factor,
+          dietary_fiber: (item.dietaryFiber || 0) * factor,
+          total_sugars: (item.totalSugars || 0) * factor,
+          protein: (item.protein || 0) * factor,
+          nutri_score: nutriResult.score,
+          nutri_grade: nutriResult.grade,
+          culture_score: 0,
+          dietary_tags: dietaryTags.join(","),
+        });
+      } catch {}
+
+      // Build a food-row-like object for immediate use (per-serving values for response)
+      const foodRow = {
+        id,
+        name: item.name,
+        brand: restaurant,
+        category: item.category || "Other",
+        serving_size: sv,
+        source: "vendor",
+        calories: item.calories,
+        total_fat: item.totalFat || 0,
+        saturated_fat: item.saturatedFat || 0,
+        trans_fat: item.transFat || 0,
+        cholesterol: item.cholesterol || 0,
+        sodium: item.sodium || 0,
+        total_carbohydrates: item.totalCarbohydrates || 0,
+        dietary_fiber: item.dietaryFiber || 0,
+        total_sugars: item.totalSugars || 0,
+        protein: item.protein || 0,
+        culture_score: null,
+        size_variant: null,
+      };
+
+      // Map by lowercase name for matching
+      results.set(item.name.toLowerCase().replace(/[^\w\s]/g, "").trim(), foodRow);
+    }
+
+    console.log(`[web-search] Found ${results.size} items for ${restaurant}`);
+  } catch (err: any) {
+    console.error(`[web-search] Error for ${restaurant}:`, err.message?.substring(0, 100));
+  }
+
+  return results;
+}
+
 function getNutrition(food: any, quantity: number): NutritionValues {
   // For matched foods, nutrition is per serving. Multiply by quantity.
   const round2 = (n: number | null) =>
@@ -269,10 +471,13 @@ interface MatchedOrderItem {
   nutrition: NutritionValues | null;
 }
 
-function buildOrderItems(
+async function buildOrderItems(
   geminiResult: GeminiOrderResult
-): MatchedOrderItem[] {
+): Promise<MatchedOrderItem[]> {
   const items: MatchedOrderItem[] = [];
+
+  // First pass: match against DB
+  const unmatchedNames: string[] = [];
 
   for (let i = 0; i < geminiResult.items.length; i++) {
     const item = geminiResult.items[i];
@@ -290,6 +495,8 @@ function buildOrderItems(
         cultureScore: food.culture_score ?? null,
       };
       nutrition = getNutrition(food, item.quantity);
+    } else {
+      unmatchedNames.push(item.name);
     }
 
     // Auto-apply customizations if the item has them and was matched
@@ -325,7 +532,64 @@ function buildOrderItems(
     });
   }
 
+  // Second pass: web search fallback for unmatched items
+  if (unmatchedNames.length > 0 && geminiResult.restaurant) {
+    const webResults = await webSearchNutrition(unmatchedNames, geminiResult.restaurant);
+
+    if (webResults.size > 0) {
+      for (const orderItem of items) {
+        if (orderItem.match !== null) continue; // Already matched
+
+        const cleanName = orderItem.original_name.toLowerCase().replace(/[^\w\s]/g, "").trim();
+        // Try exact match, then substring match
+        let food = webResults.get(cleanName);
+        if (!food) {
+          for (const [key, val] of webResults) {
+            if (key.includes(cleanName) || cleanName.includes(key)) {
+              food = val;
+              break;
+            }
+          }
+        }
+
+        if (food) {
+          orderItem.match = {
+            id: food.id,
+            name: food.name,
+            brand: food.brand || null,
+            category: food.category || "Uncategorized",
+            cultureScore: food.culture_score ?? null,
+          };
+          // Web search results are per-serving, use directly
+          orderItem.nutrition = getNutritionPerServing(food, orderItem.quantity);
+        }
+      }
+    }
+  }
+
   return items;
+}
+
+/** Get nutrition from a food row where values are already per-serving */
+function getNutritionPerServing(food: any, quantity: number): NutritionValues {
+  const round2 = (n: number | null) =>
+    n != null ? Math.round(n * quantity * 100) / 100 : null;
+  return {
+    calories: round2(food.calories) ?? 0,
+    total_fat: round2(food.total_fat) ?? 0,
+    saturated_fat: round2(food.saturated_fat) ?? 0,
+    trans_fat: round2(food.trans_fat) ?? 0,
+    cholesterol: round2(food.cholesterol) ?? 0,
+    sodium: round2(food.sodium) ?? 0,
+    total_carbohydrates: round2(food.total_carbohydrates) ?? 0,
+    dietary_fiber: round2(food.dietary_fiber) ?? 0,
+    total_sugars: round2(food.total_sugars) ?? 0,
+    protein: round2(food.protein) ?? 0,
+    vitamin_d: null,
+    calcium: null,
+    iron: null,
+    potassium: null,
+  };
 }
 
 /**
@@ -441,7 +705,7 @@ orderRoutes.post("/scan", async (req: Request, res: Response) => {
       return;
     }
 
-    const items = buildOrderItems(geminiResult);
+    const items = await buildOrderItems(geminiResult);
     const { total_nutrition, total_price, item_count } = calculateTotals(items);
 
     const orderId = uuid();
