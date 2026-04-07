@@ -31,7 +31,7 @@ echo "Current food count: $COUNT"
 
 # Force re-download for restaurant update (v2)
 DB_VERSION_FILE="${DB_DIR}/.db_version"
-CURRENT_VERSION="4"
+CURRENT_VERSION="5"
 STORED_VERSION=$(cat "$DB_VERSION_FILE" 2>/dev/null || echo "0")
 if [ "$STORED_VERSION" != "$CURRENT_VERSION" ]; then
   echo "Database version mismatch ($STORED_VERSION vs $CURRENT_VERSION). Forcing re-download..."
