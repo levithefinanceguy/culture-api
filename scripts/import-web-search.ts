@@ -101,7 +101,7 @@ async function importChain(chainName: string, searchModel: any, formatModel: any
   try {
     // Step 1: Search the web for the chain's nutrition data
     const searchResult = await searchModel.generateContent(
-      `Search ${chainName}'s official US website or nutrition PDF and list every current menu item with its FULL published nutrition facts: calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, protein, and serving size in grams. Include all sizes (Small, Medium, Large). Include sides, drinks, breakfast, desserts. Use the EXACT numbers as published.`
+      `Go to ${chainName}'s official nutrition calculator or nutrition page on their website. List the COMPLETE nutrition facts for every menu item including: calories, total fat (g), saturated fat (g), trans fat (g), cholesterol (mg), sodium (mg), total carbs (g), dietary fiber (g), sugars (g), protein (g), and serving weight in grams. Include ALL categories: entrees, sandwiches, burgers, sides, drinks, breakfast, desserts, salads, combos. Include all sizes (Small, Medium, Large) where applicable. List at least 30 items. Use the EXACT numbers as published — do not estimate.`
     );
     const searchText = searchResult.response.text();
     console.log(`  [search] Got ${searchText.length} chars of nutrition data`);
@@ -113,7 +113,23 @@ async function importChain(chainName: string, searchModel: any, formatModel: any
 
     // Step 2: Format the search results into structured JSON
     const formatResult = await formatModel.generateContent(
-      `Convert this restaurant nutrition data into a JSON array. Each item must have: name, category, calories (integer), totalFat (number), saturatedFat (number), sodium (number), totalCarbohydrates (number), dietaryFiber (number), totalSugars (number), protein (number), cholesterol (number), transFat (number), servingSize (grams, number). All values per serving as published. Return ONLY the JSON array.\n\nData:\n${searchText}`
+      `Extract EVERY menu item from this nutrition data into a JSON array. EVERY item MUST have ALL of these fields — if a value is missing from the data, use 0, but DO NOT leave fields out:
+
+- name (string)
+- category (string: "Burgers", "Chicken", "Sides", "Drinks", "Breakfast", "Desserts", "Tacos", "Burritos", "Salads", "Other")
+- calories (integer, per serving)
+- totalFat (number, grams per serving) — REQUIRED, must not be 0 if the item has fat
+- saturatedFat (number, grams)
+- transFat (number, grams)
+- cholesterol (number, mg)
+- sodium (number, mg) — REQUIRED, most items have 200-2000mg
+- totalCarbohydrates (number, grams) — REQUIRED, must not be 0 if item has carbs
+- dietaryFiber (number, grams)
+- totalSugars (number, grams)
+- protein (number, grams) — REQUIRED, must not be 0 if item has protein
+- servingSize (number, grams — estimate from item type if not given: burger ~200g, burrito ~200g, taco ~80g, drink ~400ml, side ~100g)
+
+Return ONLY the JSON array. No explanation.\n\nData:\n${searchText}`
     );
     const text = formatResult.response.text();
     const items = parseGeminiJson(text) as MenuItem[] | null;
@@ -214,7 +230,7 @@ async function main() {
   });
 
   // Filter chains if args provided
-  const args = process.argv.slice(2).map(a => a.toLowerCase());
+  const args = process.argv.slice(2).map(a => slugify(a));
   const chainsToProcess = args.length > 0
     ? CHAINS.filter(c => args.some(a => slugify(c).includes(a)))
     : CHAINS;
