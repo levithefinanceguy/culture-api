@@ -233,7 +233,7 @@ async function webSearchNutrition(
     } as any);
 
     const itemList = itemNames.map((n, i) => `${i + 1}. ${n}`).join("\n");
-    const searchPrompt = `Search ${restaurant}'s official nutrition information and find the EXACT published nutrition facts for these menu items:\n${itemList}\n\nFor each item, provide the exact calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, and protein as published on their official website or nutrition PDF. Include serving size in grams if available.`;
+    const searchPrompt = `Go to ${restaurant}'s official website or official nutrition PDF and find the EXACT published nutrition facts for these menu items:\n${itemList}\n\nIMPORTANT: Use the EXACT numbers as published — do NOT estimate or round. If their website says 300 calories, report 300, not 305. For each item provide: calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, protein, and serving size in grams.`;
 
     const searchResult = await Promise.race([
       searchModel.generateContent(searchPrompt),

@@ -155,7 +155,7 @@ async function aiSearchAndInsert(query: string): Promise<any[]> {
 
   const searchResult = await Promise.race([
     searchModel.generateContent(
-      `Search for the exact published nutrition facts for "${query}". If this is a restaurant menu item, find the official nutrition data from the restaurant's website. If it's a generic food, find USDA or authoritative nutrition data. Include: calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, protein, and serving size. List all size variants if applicable (Small, Medium, Large).`
+      `Search for the EXACT published nutrition facts for "${query}". Go to the restaurant's official website or official nutrition PDF — do NOT estimate or round. Use the EXACT numbers as published. For example, if the website says 300 calories, report 300, not 305. Include: calories, total fat, saturated fat, trans fat, cholesterol, sodium, total carbohydrates, dietary fiber, total sugars, protein, and serving size. List all size variants if applicable (Small, Medium, Large).`
     ),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("AI search timeout")), 15000)
