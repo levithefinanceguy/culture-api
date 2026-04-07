@@ -206,6 +206,15 @@ try {
   }
 } catch {}
 
+// Add popularity column if missing (migration)
+try {
+  const cols2 = db.prepare("PRAGMA table_info(foods)").all() as any[];
+  if (!cols2.some((c: any) => c.name === "popularity")) {
+    db.exec("ALTER TABLE foods ADD COLUMN popularity INTEGER NOT NULL DEFAULT 0");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_foods_popularity ON foods(popularity DESC)");
+  }
+} catch {}
+
 // Rebuild FTS index on startup to ensure it's in sync
 db.exec("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')");
 

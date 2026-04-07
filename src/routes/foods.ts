@@ -106,6 +106,104 @@ function formatOFFFood(off: OFFFood) {
   };
 }
 
+// --- Autocomplete suggestions (fast prefix search ranked by popularity) ---
+
+foodRoutes.get("/suggest", (req, res) => {
+  const q = (req.query.q as string || "").trim();
+  const limit = Math.min(parseInt(req.query.limit as string) || 8, 20);
+
+  if (!q || q.length < 2) {
+    // Return trending foods (most popular)
+    const trending = db.prepare(`
+      SELECT id, name, brand, category, source, popularity, calories, serving_size
+      FROM foods WHERE popularity > 0
+      ORDER BY popularity DESC LIMIT ?
+    `).all(limit) as any[];
+    res.json({
+      suggestions: trending.map(f => ({
+        id: f.id, name: f.name, brand: f.brand, category: f.category,
+        source: f.source, popularity: f.popularity,
+        calories: f.calories, servingSize: f.serving_size,
+      })),
+      type: "trending",
+    });
+    return;
+  }
+
+  const cacheKey = `suggest:${q}:${limit}`;
+  const cached = cache.get(cacheKey);
+  if (cached) { res.json(cached); return; }
+
+  // Fast prefix matching with popularity ranking
+  // Try FTS first for speed, then LIKE fallback
+  let results: any[] = [];
+
+  try {
+    const ftsQ = q.split(/\s+/).map(w => `"${w}"*`).join(" ");
+    results = db.prepare(`
+      SELECT f.id, f.name, f.brand, f.category, f.source, f.popularity,
+             f.calories, f.serving_size,
+             fts.rank + (f.popularity * -0.1)
+               + CASE WHEN lower(f.name) LIKE @prefix THEN -500 ELSE 0 END
+               + CASE WHEN f.source = 'vendor' THEN -20 ELSE 0 END
+               + CASE WHEN f.popularity > 10 THEN -50 ELSE 0 END
+               + length(f.name) * 0.3
+             AS score
+      FROM foods f
+      JOIN foods_fts fts ON f.rowid = fts.rowid
+      WHERE foods_fts MATCH @q
+      ORDER BY score ASC
+      LIMIT @limit
+    `).all({ q: ftsQ, prefix: `${q.toLowerCase()}%`, limit }) as any[];
+  } catch {}
+
+  // LIKE fallback if FTS returned nothing
+  if (results.length === 0) {
+    try {
+      results = db.prepare(`
+        SELECT id, name, brand, category, source, popularity, calories, serving_size
+        FROM foods
+        WHERE lower(name) LIKE @pattern OR lower(brand) LIKE @pattern
+        ORDER BY popularity DESC, length(name) ASC
+        LIMIT @limit
+      `).all({ pattern: `%${q.toLowerCase()}%`, limit }) as any[];
+    } catch {}
+  }
+
+  const response = {
+    suggestions: results.map(f => ({
+      id: f.id, name: f.name, brand: f.brand, category: f.category,
+      source: f.source, popularity: f.popularity,
+      calories: f.calories, servingSize: f.serving_size,
+    })),
+    type: "search" as const,
+  };
+  cache.set(cacheKey, response, 60); // Short TTL — popularity changes
+  res.json(response);
+});
+
+// --- Bump popularity when a food is logged ---
+
+foodRoutes.post("/log-popularity", (req, res) => {
+  const { food_ids } = req.body;
+  if (!Array.isArray(food_ids) || food_ids.length === 0) {
+    res.status(400).json({ error: "food_ids array is required" });
+    return;
+  }
+
+  const stmt = db.prepare("UPDATE foods SET popularity = popularity + 1 WHERE id = ?");
+  const bumpMany = db.transaction((ids: string[]) => {
+    for (const id of ids) { stmt.run(id); }
+  });
+
+  try {
+    bumpMany(food_ids.slice(0, 50)); // Cap at 50 to prevent abuse
+    res.json({ bumped: food_ids.length });
+  } catch {
+    res.status(500).json({ error: "Failed to update popularity" });
+  }
+});
+
 // --- AI web search fallback ---
 
 const aiUpsertVendor = db.prepare(`
