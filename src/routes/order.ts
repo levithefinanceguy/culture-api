@@ -378,9 +378,11 @@ Data:\n${searchText}`;
 }
 
 function getNutrition(food: any, quantity: number): NutritionValues {
-  // For matched foods, nutrition is per serving. Multiply by quantity.
+  // DB stores per-100g — convert to per-serving using serving_size
+  const sv = food.serving_size || 100;
+  const factor = (sv / 100) * quantity;
   const round2 = (n: number | null) =>
-    n != null ? Math.round(n * quantity * 100) / 100 : null;
+    n != null ? Math.round(n * factor * 100) / 100 : null;
 
   return {
     calories: round2(food.calories) ?? 0,
