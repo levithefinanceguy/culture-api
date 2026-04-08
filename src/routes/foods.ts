@@ -139,7 +139,8 @@ foodRoutes.get("/suggest", (req, res) => {
   let results: any[] = [];
 
   try {
-    const ftsQ = q.split(/\s+/).map(w => `"${w}"*`).join(" ");
+    const normQ = q.replace(/['']s\b/gi, "").replace(/['']/g, "");
+    const ftsQ = normQ.split(/\s+/).filter(w => w.length > 0).map(w => `"${w}"*`).join(" ");
     results = db.prepare(`
       SELECT f.id, f.name, f.brand, f.category, f.source, f.popularity,
              f.calories, f.serving_size,
@@ -432,7 +433,9 @@ foodRoutes.get("/search", async (req, res) => {
   }
 
   // Use FTS5 for fast full-text search
-  const ftsQuery = query.split(/\s+/).map((w) => `"${w}"*`).join(" ");
+  // Normalize: strip possessive 's, apostrophes — FTS5 tokenizes "McDonald's" as "mcdonald" + "s"
+  const normalizedQuery = query.replace(/['']s\b/gi, "").replace(/['']/g, "");
+  const ftsQuery = normalizedQuery.split(/\s+/).filter(w => w.length > 0).map((w) => `"${w}"*`).join(" ");
 
   const params: any = { limit, offset };
   const whereClauses: string[] = ["foods_fts MATCH @q"];
