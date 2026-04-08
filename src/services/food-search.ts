@@ -35,10 +35,11 @@ export function searchFood(
   const rankExpr = `
       fts.rank
       + CASE WHEN lower(f.name) = lower(@rawQuery) THEN -1000 ELSE 0 END
-      + CASE WHEN f.brand IS NULL OR f.brand = '' THEN -50 ELSE 0 END
-      + CASE WHEN f.source = 'usda' THEN -30 ELSE 0 END
+      + CASE WHEN f.source = 'vendor' THEN -500 ELSE 0 END
+      + CASE WHEN f.source = 'vendor' AND f.brand IS NOT NULL THEN -200 ELSE 0 END
+      + CASE WHEN f.source = 'usda' AND f.name = upper(f.name) THEN 100 ELSE 0 END
       ${penalizeCommunity ? "+ CASE WHEN f.source = 'community' THEN 20 ELSE 0 END" : ""}
-      + length(f.name) * 0.5`;
+      + length(f.name) * 0.3`;
 
   // If we have a brand/restaurant, try brand-filtered search first
   if (brandFilter) {
@@ -84,6 +85,10 @@ export function searchFood(
         });
       if (result) return result;
     } catch {}
+
+    // Brand was specified but no vendor match found — don't fall through to generic USDA
+    // Return null so the order scan's web search fallback can find the correct restaurant data
+    return null;
   }
 
   // Strategy 1: exact phrase match
