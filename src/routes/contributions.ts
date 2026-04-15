@@ -81,13 +81,24 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
   // Auto-approve and insert if it has a barcode (verified from label scan)
   const hasBarcode = rest.barcode && rest.barcode.length > 3;
   const status = hasBarcode ? "approved" : "pending";
+  const isFirebase = (req as any).apiKeyOwner === "firebase";
 
-  db.prepare(`
-    INSERT INTO contributions (id, api_key, type, food_id, data, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, apiKey, type, food_id || null, data, status);
+  // Log contribution (skip for Firebase users if api_key foreign key fails)
+  try {
+    db.prepare(`
+      INSERT INTO contributions (id, api_key, type, food_id, data, status)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, apiKey || "firebase", type, food_id || null, data, status);
+  } catch (e: any) {
+    // Foreign key constraint failure for Firebase users — skip contributions table, still insert food
+    if (!isFirebase) {
+      console.error("Contribution insert failed:", e.message);
+      res.status(500).json({ error: "Internal server error", code: 500 });
+      return;
+    }
+  }
 
-  // Only auto-insert into foods table if barcode verified (from label scan)
+  // Auto-insert into foods table if barcode present
   if (type === "new_food" && hasBarcode) {
     const foodId = `barcode-${rest.barcode}`;
     try {
