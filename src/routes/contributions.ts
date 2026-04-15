@@ -78,20 +78,18 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
   const id = uuid();
   const data = JSON.stringify(rest);
 
-  // Auto-approve and insert if it has a barcode (verified from label scan)
   const hasBarcode = rest.barcode && rest.barcode.length > 3;
   const status = hasBarcode ? "approved" : "pending";
   const isFirebase = (req as any).apiKeyOwner === "firebase";
 
-  // Log contribution (skip for Firebase users if api_key foreign key fails)
-  try {
-    db.prepare(`
-      INSERT INTO contributions (id, api_key, type, food_id, data, status)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, apiKey || "firebase", type, food_id || null, data, status);
-  } catch (e: any) {
-    // Foreign key constraint failure for Firebase users — skip contributions table, still insert food
-    if (!isFirebase) {
+  // Log to contributions table (skip for Firebase app users — no API key row)
+  if (!isFirebase && apiKey) {
+    try {
+      db.prepare(`
+        INSERT INTO contributions (id, api_key, type, food_id, data, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, apiKey, type, food_id || null, data, status);
+    } catch (e: any) {
       console.error("Contribution insert failed:", e.message);
       res.status(500).json({ error: "Internal server error", code: 500 });
       return;
