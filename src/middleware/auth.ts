@@ -1,12 +1,35 @@
 import { Request, Response, NextFunction } from "express";
 import db from "../data/database";
 import { rateLimitMiddleware } from "./rate-limiter";
+import * as admin from "firebase-admin";
+
+// Initialize Firebase Admin (uses GOOGLE_APPLICATION_CREDENTIALS or default credentials)
+if (!admin.apps.length) {
+  admin.initializeApp({ projectId: "cheeseapphq" });
+}
 
 /**
- * Authenticates the API key and then applies the sliding window rate limiter.
- * Rate limit headers (X-RateLimit-*) are set by the rate limiter middleware.
+ * Authenticates requests via either:
+ * 1. Firebase Auth token (Bearer header) — no rate limit, for Cheese app
+ * 2. API key (x-api-key header) — rate limited, for public API users
  */
 export function authenticateApiKey(req: Request, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+
+  // Fast lane: Firebase Auth token
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.split("Bearer ")[1];
+    admin.auth().verifyIdToken(token).then(() => {
+      (req as any).apiKeyOwner = "firebase";
+      (req as any).apiKeyTier = "unlimited";
+      next();
+    }).catch(() => {
+      res.status(401).json({ error: "Invalid Firebase token." });
+    });
+    return;
+  }
+
+  // Standard: API key auth
   const apiKey = req.headers["x-api-key"] as string || req.query.api_key as string;
 
   if (!apiKey) {

@@ -215,6 +215,11 @@ try {
   }
 } catch {}
 
+// Ensure firebase API key exists for iOS app contributions
+try {
+  db.prepare("INSERT OR IGNORE INTO api_keys (key, owner, tier) VALUES ('firebase', 'Cheese iOS App', 'unlimited')").run();
+} catch {}
+
 // Rebuild FTS index on startup to ensure it's in sync
 db.exec("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')");
 

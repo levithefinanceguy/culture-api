@@ -7,7 +7,7 @@ export const contributionRoutes = Router();
 
 // Submit a new contribution
 contributionRoutes.post("/", (req: Request, res: Response) => {
-  const apiKey = req.headers["x-api-key"] as string || req.query.api_key as string;
+  const apiKey = req.headers["x-api-key"] as string || req.query.api_key as string || ((req as any).apiKeyOwner === "firebase" ? "firebase" : "");
   const { type, food_id, ...rest } = req.body;
 
   if (!type) {

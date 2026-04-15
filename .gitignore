@@ -5,5 +5,9 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
+*.db.backup
+*.db.backup-*
 .usda-data/
 culture.db.gz
+parse_err.log
