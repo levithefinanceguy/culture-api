@@ -165,7 +165,7 @@ app.use("/api/v1", authenticateApiKey, healthRoutes);
 app.use("/api/v1/images", authenticateApiKey, imageRoutes);
 
 // ONE-TIME PURGE — remove after running
-app.delete("/purge-community-data", (req, res) => {
+app.post("/purge-community-data", (req, res) => {
   try {
     const count = db.prepare("SELECT COUNT(*) as c FROM foods WHERE source = 'community'").get() as any;
     db.prepare("DELETE FROM foods WHERE source = 'community'").run();
