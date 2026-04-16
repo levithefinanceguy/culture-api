@@ -170,7 +170,7 @@ app.post("/test-contribution", (req, res) => {
   if (!barcode || !name) { res.status(400).json({error: "barcode and name required"}); return; }
   const foodId = `barcode-${barcode}`;
   try {
-    db.prepare(`INSERT OR REPLACE INTO foods (id, name, brand, category, barcode, source, calories, serving_size, serving_unit, protein, total_fat, total_carbohydrates) VALUES (?, ?, ?, ?, ?, 'test', ?, 100, 'g', 0, 0, 0)`).run(foodId, name, null, "test", barcode, calories || 0);
+    db.prepare(`INSERT OR REPLACE INTO foods (id, name, brand, category, barcode, source, calories, serving_size, serving_unit, protein, total_fat, total_carbohydrates) VALUES (?, ?, ?, ?, ?, 'community', ?, 100, 'g', 0, 0, 0)`).run(foodId, name, null, "test", barcode, calories || 0);
     const check = db.prepare("SELECT id, name, calories FROM foods WHERE barcode = ?").get(barcode) as any;
     // Clean up test data
     db.prepare("DELETE FROM foods WHERE id = ?").run(foodId);
