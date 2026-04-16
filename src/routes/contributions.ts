@@ -177,19 +177,3 @@ contributionRoutes.get("/:id", (req: Request, res: Response) => {
 
   res.json(formatContribution(contribution));
 });
-
-
-// TEMPORARY TEST ENDPOINT — remove after verification
-contributionRoutes.post("/test-insert", (req: Request, res: Response) => {
-  const { barcode, name, calories } = req.body;
-  if (!barcode || !name) { res.status(400).json({error: "barcode and name required"}); return; }
-  const foodId = `barcode-${barcode}`;
-  try {
-    db.prepare(`INSERT OR REPLACE INTO foods (id, name, brand, category, barcode, source, calories, serving_size, serving_unit, protein, total_fat, total_carbohydrates) VALUES (?, ?, ?, ?, ?, 'test', ?, 100, 'g', 0, 0, 0)`).run(foodId, name, null, "test", barcode, calories || 0);
-    // Verify it was inserted
-    const check = db.prepare("SELECT id, name, calories FROM foods WHERE barcode = ?").get(barcode) as any;
-    res.json({success: true, inserted: check});
-  } catch (e: any) {
-    res.status(500).json({error: e.message});
-  }
-});
