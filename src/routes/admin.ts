@@ -14,7 +14,7 @@ export const adminRoutes = Router();
 // Admin authorization middleware
 function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   const tier = (req as any).apiKeyTier;
-  if (tier !== "admin") {
+  if (tier !== "admin" && tier !== "unlimited") {
     res.status(403).json({ error: "Admin access required." });
     return;
   }
@@ -263,6 +263,19 @@ adminRoutes.post("/update-menus", async (req: Request, res: Response) => {
     }
   } catch (err: any) {
     res.status(500).json({ error: `Menu update failed: ${err.message}` });
+  }
+});
+
+// Purge community-contributed foods (bad data from pre-fix barcode scans)
+adminRoutes.delete("/purge-community", (req: Request, res: Response) => {
+  try {
+    const count = db.prepare("SELECT COUNT(*) as c FROM foods WHERE source = 'community'").get() as any;
+    db.prepare("DELETE FROM foods WHERE source = 'community'").run();
+    // Rebuild FTS index
+    try { db.exec("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')"); } catch {}
+    res.json({ purged: count.c, message: `Deleted ${count.c} community-contributed foods.` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
