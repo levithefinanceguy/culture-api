@@ -165,7 +165,7 @@ app.use("/api/v1", authenticateApiKey, healthRoutes);
 app.use("/api/v1/images", authenticateApiKey, imageRoutes);
 
 // TEMPORARY: unauthenticated test endpoint for contribution verification
-app.post("/api/v1/test-contribution", (req, res) => {
+app.post("/test-contribution", (req, res) => {
   const { barcode, name, calories } = req.body;
   if (!barcode || !name) { res.status(400).json({error: "barcode and name required"}); return; }
   const foodId = `barcode-${barcode}`;
