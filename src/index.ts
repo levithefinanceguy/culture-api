@@ -164,6 +164,18 @@ app.use("/api/v1", authenticateApiKey, customizeRoutes);
 app.use("/api/v1", authenticateApiKey, healthRoutes);
 app.use("/api/v1/images", authenticateApiKey, imageRoutes);
 
+// ONE-TIME PURGE — remove after running
+app.delete("/purge-community-data", (req, res) => {
+  try {
+    const count = db.prepare("SELECT COUNT(*) as c FROM foods WHERE source = 'community'").get() as any;
+    db.prepare("DELETE FROM foods WHERE source = 'community'").run();
+    try { db.exec("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')"); } catch {}
+    res.json({purged: count.c});
+  } catch (e: any) {
+    res.status(500).json({error: e.message});
+  }
+});
+
 // Error handling (must be after all routes)
 app.use(notFoundHandler);
 app.use(globalErrorHandler);
