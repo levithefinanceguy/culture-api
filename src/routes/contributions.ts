@@ -104,18 +104,19 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
         INSERT OR REPLACE INTO foods (id, name, brand, category, barcode, source, ingredients_text,
           calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
           total_carbohydrates, dietary_fiber, total_sugars, protein,
-          serving_size, serving_unit)
+          serving_size, serving_unit, household_serving)
         VALUES (?, ?, ?, ?, ?, 'community', ?,
           ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
-          ?, ?)
+          ?, ?, ?)
       `).run(
         foodId, rest.name || "Unknown", rest.brand || null, rest.category || "Uncategorized",
         rest.barcode, rest.ingredients_text || null,
         rest.calories || 0, rest.total_fat || 0, rest.saturated_fat || 0,
         rest.trans_fat || 0, rest.cholesterol || 0, rest.sodium || 0,
         rest.total_carbohydrates || 0, rest.dietary_fiber || 0, rest.total_sugars || 0,
-        rest.protein || 0, rest.serving_size || 100, rest.serving_unit || "g"
+        rest.protein || 0, rest.serving_size || 100, rest.serving_unit || "g",
+        rest.household_serving || null
       );
     } catch (e: any) {
       console.error("Auto-insert barcode food failed:", e.message);
