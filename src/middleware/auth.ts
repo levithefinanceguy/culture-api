@@ -19,8 +19,9 @@ export function authenticateApiKey(req: Request, res: Response, next: NextFuncti
   // Fast lane: Firebase Auth token
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.split("Bearer ")[1];
-    admin.auth().verifyIdToken(token).then(() => {
+    admin.auth().verifyIdToken(token).then((decoded) => {
       (req as any).apiKeyOwner = "firebase";
+      (req as any).firebaseUid = decoded.uid;
       (req as any).apiKeyTier = "unlimited";
       next();
     }).catch(() => {

@@ -1,12 +1,13 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
+import * as admin from "firebase-admin";
 import db from "../data/database";
 import { formatContribution } from "../services/contribution-format";
 
 export const contributionRoutes = Router();
 
 // Submit a new contribution
-contributionRoutes.post("/", (req: Request, res: Response) => {
+contributionRoutes.post("/", async (req: Request, res: Response) => {
   const apiKey = req.headers["x-api-key"] as string || req.query.api_key as string || ((req as any).apiKeyOwner === "firebase" ? "firebase" : "");
   const { type, food_id, ...rest } = req.body;
 
@@ -79,8 +80,20 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
   const data = JSON.stringify(rest);
 
   const hasBarcode = rest.barcode && rest.barcode.length > 3;
-  const status = hasBarcode ? "approved" : "pending";
   const isFirebase = (req as any).apiKeyOwner === "firebase";
+  // Creator corrections: a user flagged `creator` in the Firestore whitelist may overwrite
+  // live data even without a barcode (e.g. fixing a searched/FatSecret item). Keyed by
+  // fatsecret-{id}. Fail closed — any lookup error is treated as non-creator.
+  let isCreatorCorrection = false;
+  if (type === "new_food" && !hasBarcode && rest.fatsecret_food_id && (req as any).firebaseUid) {
+    try {
+      const doc = await admin.firestore().collection("whitelist").doc((req as any).firebaseUid).get();
+      isCreatorCorrection = doc.exists && doc.get("creator") === true;
+    } catch (e: any) {
+      console.error("Creator whitelist check failed:", e.message);
+    }
+  }
+  const status = (hasBarcode || isCreatorCorrection) ? "approved" : "pending";
 
   // Log to contributions table (skip for Firebase app users — no API key row)
   if (!isFirebase && apiKey) {
@@ -96,22 +109,24 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
     }
   }
 
-  // Auto-insert into foods table if barcode present
-  if (type === "new_food" && hasBarcode) {
-    const foodId = `barcode-${rest.barcode}`;
+  // Auto-insert into foods table when we have a barcode, or when a trusted creator
+  // corrects a searched item (no barcode → keyed by fatsecret-{id}).
+  if (type === "new_food" && (hasBarcode || isCreatorCorrection)) {
+    const foodId = hasBarcode ? `barcode-${rest.barcode}` : `fatsecret-${rest.fatsecret_food_id}`;
+    const source = isCreatorCorrection ? "creator_correction" : "community";
     try {
       db.prepare(`
         INSERT OR REPLACE INTO foods (id, name, brand, category, barcode, source, ingredients_text,
           calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium,
           total_carbohydrates, dietary_fiber, total_sugars, protein,
           serving_size, serving_unit, household_serving)
-        VALUES (?, ?, ?, ?, ?, 'community', ?,
+        VALUES (?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
           ?, ?, ?)
       `).run(
         foodId, rest.name || "Unknown", rest.brand || null, rest.category || "Uncategorized",
-        rest.barcode, rest.ingredients_text || null,
+        hasBarcode ? rest.barcode : null, source, rest.ingredients_text || null,
         rest.calories || 0, rest.total_fat || 0, rest.saturated_fat || 0,
         rest.trans_fat || 0, rest.cholesterol || 0, rest.sodium || 0,
         rest.total_carbohydrates || 0, rest.dietary_fiber || 0, rest.total_sugars || 0,
@@ -119,7 +134,7 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
         rest.household_serving || null
       );
     } catch (e: any) {
-      console.error("Auto-insert barcode food failed:", e.message);
+      console.error("Auto-insert food failed:", e.message);
     }
   }
 
