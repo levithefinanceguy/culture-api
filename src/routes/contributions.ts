@@ -1,13 +1,18 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
-import * as admin from "firebase-admin";
 import db from "../data/database";
 import { formatContribution } from "../services/contribution-format";
+
+// Creator allowlist for no-barcode corrections. Gated on the verified email in the Firebase
+// token (verifyIdToken returns it with no service-account credentials needed). Override/extend
+// via CREATOR_EMAILS env (comma-separated).
+const CREATOR_EMAILS = (process.env.CREATOR_EMAILS || "bretproctor1@gmail.com")
+  .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
 
 export const contributionRoutes = Router();
 
 // Submit a new contribution
-contributionRoutes.post("/", async (req: Request, res: Response) => {
+contributionRoutes.post("/", (req: Request, res: Response) => {
   const apiKey = req.headers["x-api-key"] as string || req.query.api_key as string || ((req as any).apiKeyOwner === "firebase" ? "firebase" : "");
   const { type, food_id, ...rest } = req.body;
 
@@ -81,18 +86,12 @@ contributionRoutes.post("/", async (req: Request, res: Response) => {
 
   const hasBarcode = rest.barcode && rest.barcode.length > 3;
   const isFirebase = (req as any).apiKeyOwner === "firebase";
-  // Creator corrections: a user flagged `creator` in the Firestore whitelist may overwrite
-  // live data even without a barcode (e.g. fixing a searched/FatSecret item). Keyed by
-  // fatsecret-{id}. Fail closed — any lookup error is treated as non-creator.
-  let isCreatorCorrection = false;
-  if (type === "new_food" && !hasBarcode && rest.fatsecret_food_id && (req as any).firebaseUid) {
-    try {
-      const doc = await admin.firestore().collection("whitelist").doc((req as any).firebaseUid).get();
-      isCreatorCorrection = doc.exists && doc.get("creator") === true;
-    } catch (e: any) {
-      console.error("Creator whitelist check failed:", e.message);
-    }
-  }
+  // Creator corrections: the creator may overwrite live data even without a barcode (e.g.
+  // fixing a searched/FatSecret item). Keyed by fatsecret-{id}. Gated on the verified email
+  // in the token — no Firestore/service-account dependency, so it works wherever auth works.
+  const callerEmail = String((req as any).firebaseEmail || "").toLowerCase();
+  const isCreator = isFirebase && !!callerEmail && CREATOR_EMAILS.includes(callerEmail);
+  const isCreatorCorrection = isCreator && !hasBarcode && !!rest.fatsecret_food_id;
   const status = (hasBarcode || isCreatorCorrection) ? "approved" : "pending";
 
   // Log to contributions table (skip for Firebase app users — no API key row)

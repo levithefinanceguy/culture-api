@@ -22,6 +22,7 @@ export function authenticateApiKey(req: Request, res: Response, next: NextFuncti
     admin.auth().verifyIdToken(token).then((decoded) => {
       (req as any).apiKeyOwner = "firebase";
       (req as any).firebaseUid = decoded.uid;
+      (req as any).firebaseEmail = decoded.email || "";
       (req as any).apiKeyTier = "unlimited";
       next();
     }).catch(() => {
