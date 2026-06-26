@@ -71,16 +71,41 @@ function download(u) {
 download(url, dest).then(() => process.exit(0)).catch((err) => { console.error('Download failed:', err.message); process.exit(1); });
 " "$DB_URL" "$DB_PATH"
 
+  DL_OK=0
   if [ $? -eq 0 ] && [ -f "$DB_PATH" ]; then
     COUNT=$(count_foods "$DB_PATH")
-    if [ "$COUNT" -lt "1000" ]; then
-      echo "ERROR: Database has $COUNT foods after download."
+    if [ "$COUNT" -ge "1000" ]; then
+      DL_OK=1
+      echo "Database ready with $COUNT foods (downloaded)."
+    fi
+  fi
+
+  # Fallback: if the Firebase download is unavailable (e.g. HTTP 402 egress quota),
+  # seed from the culture.db.gz bundled in the repo so the service still boots.
+  if [ "$DL_OK" -ne 1 ]; then
+    BUNDLED_GZ="$(cd "$(dirname "$0")/.." && pwd)/culture.db.gz"
+    echo "Download unavailable — falling back to bundled DB: $BUNDLED_GZ"
+    rm -f "$DB_PATH"
+    node -e "
+const fs = require('fs');
+const zlib = require('zlib');
+const src = process.argv[1];
+const dest = process.argv[2];
+fs.writeFileSync(dest, zlib.gunzipSync(fs.readFileSync(src)));
+console.log('Seeded from bundled DB.');
+" "$BUNDLED_GZ" "$DB_PATH"
+
+    if [ $? -eq 0 ] && [ -f "$DB_PATH" ]; then
+      COUNT=$(count_foods "$DB_PATH")
+      if [ "$COUNT" -lt "1000" ]; then
+        echo "ERROR: Bundled DB has $COUNT foods."
+        exit 1
+      fi
+      echo "Database ready with $COUNT foods (bundled)."
+    else
+      echo "ERROR: Failed to seed database (download and bundled both failed)."
       exit 1
     fi
-    echo "Database ready with $COUNT foods."
-  else
-    echo "ERROR: Failed to download database."
-    exit 1
   fi
 else
   echo "Database has $COUNT foods."
