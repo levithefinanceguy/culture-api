@@ -701,12 +701,67 @@ foodRoutes.get("/barcode/:code", async (req, res) => {
     return;
   }
 
-  // Open Food Facts is intentionally NOT used as a barcode source.
-  // OFF data is crowd-sourced and frequently has wrong serving sizes / calories;
-  // auto-importing it permanently poisoned the Culture cache and then shadowed the
-  // app's accurate FatSecret barcode pipeline (Culture is queried first). By returning
-  // 404 here, the app falls through to FatSecret (manufacturer-accurate) and contributes
-  // a verified `barcode-{code}` row back to Culture, which self-seeds this cache cleanly.
+  // Fallback: Open Food Facts — auto-import if valid
+  try {
+    const offResult = await offLookupBarcode(req.params.code);
+    if (offResult) {
+      const nutrition = {
+        name: offResult.name,
+        calories: offResult.calories,
+        total_fat: offResult.total_fat,
+        saturated_fat: offResult.saturated_fat,
+        protein: offResult.protein,
+        total_carbohydrates: offResult.total_carbohydrates,
+        total_sugars: offResult.total_sugars,
+        sodium: offResult.sodium,
+        dietary_fiber: offResult.dietary_fiber,
+        serving_size: offResult.serving_size,
+      };
+
+      const validation = validateFoodData(nutrition);
+
+      if (validation.valid) {
+        // Auto-import: data is clean, save to Culture
+        const foodId = createFood({
+          name: offResult.name,
+          category: offResult.category || "Uncategorized",
+          servingSize: offResult.serving_size || 100,
+          servingUnit: offResult.serving_unit || "g",
+          source: "community",
+          barcode: offResult.barcode,
+          nutrition: {
+            calories: offResult.calories, total_fat: offResult.total_fat,
+            saturated_fat: offResult.saturated_fat, trans_fat: offResult.trans_fat || 0,
+            cholesterol: offResult.cholesterol || 0, sodium: offResult.sodium,
+            total_carbohydrates: offResult.total_carbohydrates,
+            dietary_fiber: offResult.dietary_fiber, total_sugars: offResult.total_sugars,
+            protein: offResult.protein, vitamin_d: 0, calcium: 0, iron: 0, potassium: 0,
+          },
+          ingredientsText: offResult.ingredients_text,
+          brand: offResult.brand,
+        });
+
+        // Return the newly saved Culture food
+        const saved = db.prepare("SELECT * FROM foods WHERE id = ?").get(foodId);
+        if (saved) {
+          const result = formatFood(saved);
+          cache.set(cacheKey, result, 600);
+          res.json(result);
+          return;
+        }
+      } else {
+        // Data failed validation — return as provisional, don't save
+        const result = formatOFFFood(offResult);
+        (result as any).validation_errors = validation.errors;
+        cache.set(cacheKey, result, 180);
+        res.json(result);
+        return;
+      }
+    }
+  } catch {
+    // OFF lookup failed — fall through to 404
+  }
+
   res.status(404).json({ error: "Food not found for this barcode" });
 });
 

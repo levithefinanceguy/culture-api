@@ -62,7 +62,7 @@ scanRoutes.post("/label", async (req: Request, res: Response) => {
       return;
     }
 
-    const model = getGeminiModel("gemini-1.5-flash");
+    const model = getGeminiModel("gemini-2.5-flash");
     if (!model) {
       res.status(503).json({ error: "Nutrition label scanning is not configured. GEMINI_API_KEY is missing." });
       return;
