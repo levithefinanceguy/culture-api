@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
 import db from "../data/database";
 import { formatContribution } from "../services/contribution-format";
+import { cache } from "../middleware/cache";
 
 // Creator allowlist for no-barcode corrections. Gated on the verified email in the Firebase
 // token (verifyIdToken returns it with no service-account credentials needed). Override/extend
@@ -132,6 +133,14 @@ contributionRoutes.post("/", (req: Request, res: Response) => {
         rest.protein || 0, rest.serving_size || 100, rest.serving_unit || "g",
         rest.household_serving || null
       );
+      // Invalidate the barcode read-back cache so the corrected entry is served immediately
+      // (the read endpoint caches for 600s). Cover the leading-zero variants the client tries
+      // (UPC-A vs EAN-13) so a self-heal overwrite isn't shadowed by a stale poisoned entry.
+      if (hasBarcode) {
+        const code = String(rest.barcode);
+        const variants = new Set([code, "0" + code, code.startsWith("0") ? code.slice(1) : code]);
+        for (const v of variants) cache.del(`barcode:${v}`);
+      }
     } catch (e: any) {
       console.error("Auto-insert food failed:", e.message);
     }
